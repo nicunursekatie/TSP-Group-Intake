@@ -7,7 +7,10 @@ import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
 
 export function TaskSidebar({ intakeId }: { intakeId: string }) {
-  const tasks = useStore(state => state.tasks.filter(t => t.intakeId === intakeId));
+  // Select all tasks to avoid creating a new array reference on every selector call
+  // which can cause "Maximum update depth exceeded" errors
+  const allTasks = useStore(state => state.tasks);
+  const tasks = allTasks.filter(t => t.intakeId === intakeId);
   const toggleTask = useStore(state => state.toggleTask);
 
   // Sort: Overdue & Incomplete first, then by date

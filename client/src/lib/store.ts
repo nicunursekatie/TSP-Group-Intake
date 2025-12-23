@@ -67,9 +67,16 @@ export const useStore = create<AppState>()(
         const now = new Date().toISOString();
         const currentUser = get().currentUser;
         
+        let eventDateChanged = false;
+
         set(state => ({
           intakeRecords: state.intakeRecords.map(record => {
             if (record.id === id) {
+              // Check if event date actually changed before regenerating tasks
+              if (updates.eventDate && updates.eventDate !== record.eventDate) {
+                 eventDateChanged = true;
+              }
+
               const updatedRecord = { 
                 ...record, 
                 ...updates, 
@@ -92,7 +99,7 @@ export const useStore = create<AppState>()(
         }));
 
         // Regenerate tasks if event date changed
-        if (updates.eventDate) {
+        if (eventDateChanged) {
             get().regenerateTasks(id);
         }
       },
