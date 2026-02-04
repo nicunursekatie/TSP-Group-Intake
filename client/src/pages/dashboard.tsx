@@ -25,14 +25,27 @@ import {
   Search, 
   AlertTriangle, 
   Calendar,
-  Filter
+  Filter,
+  RefreshCw,
+  ArrowRightLeft
 } from "lucide-react";
 import { IntakeStatus } from "@/lib/types";
+import { toast } from "sonner";
 
 export default function Dashboard() {
   const intakeRecords = useStore(state => state.intakeRecords);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  const handleSync = () => {
+    setIsSyncing(true);
+    // Simulate API call to main platform
+    setTimeout(() => {
+      setIsSyncing(false);
+      toast.success("Synced 3 new requests from Main Platform");
+    }, 1500);
+  };
 
   const filteredRecords = intakeRecords.filter(record => {
     const matchesSearch = 
@@ -62,11 +75,22 @@ export default function Dashboard() {
           <h1 className="text-3xl font-bold tracking-tight text-primary">Intake Records</h1>
           <p className="text-muted-foreground mt-1">Manage and track event requests.</p>
         </div>
-        <Link href="/new">
-          <Button className="shadow-lg hover:shadow-xl transition-all">
-            <Plus className="mr-2 h-4 w-4" /> New Intake
+        <div className="flex gap-2">
+          <Button 
+            variant="outline" 
+            onClick={handleSync}
+            disabled={isSyncing}
+            className="hidden sm:flex"
+          >
+            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
+            {isSyncing ? 'Syncing...' : 'Sync with Platform'}
           </Button>
-        </Link>
+          <Link href="/new">
+            <Button className="shadow-lg hover:shadow-xl transition-all">
+              <Plus className="mr-2 h-4 w-4" /> New Intake
+            </Button>
+          </Link>
+        </div>
       </div>
 
       {/* Filters */}
