@@ -428,9 +428,12 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync - Pull new/in-progress event requests from main platform (admin only)
-  app.post("/api/sync/pull", isAuthenticated, isAdmin, async (req, res) => {
+  // Platform Sync - Pull new event requests assigned to current user from main platform
+  app.post("/api/sync/pull", isAuthenticated, isApproved, async (req, res) => {
     try {
+      const userId = getUserId(req);
+      const currentUser = await authStorage.getUser(userId!);
+      
       if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
         await storage.createSyncLog({
           direction: 'pull',
@@ -443,8 +446,22 @@ export async function registerRoutes(
         });
       }
 
-      // Fetch event requests from main platform
-      const response = await fetch(`${MAIN_PLATFORM_URL}/api/event-requests?status=new,in_progress`, {
+      // Build query params - filter for 'new request' status and assigned to current user
+      const queryParams = new URLSearchParams({
+        status: 'new request',
+      });
+      
+      // Include user email for assignment filtering if available
+      if (currentUser?.email) {
+        queryParams.append('assignedTo', currentUser.email);
+      }
+
+      // Fetch event requests from main platform using the external API endpoint
+      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests?${queryParams.toString()}`;
+      console.log(`Sync pull: Fetching from ${apiUrl}`);
+      
+      const response = await fetch(apiUrl, {
+        method: 'GET',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
           'Content-Type': 'application/json',
@@ -453,6 +470,7 @@ export async function registerRoutes(
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`Sync pull failed: ${response.status} - ${errorText}`);
         await storage.createSyncLog({
           direction: 'pull',
           recordCount: 0,
@@ -462,39 +480,45 @@ export async function registerRoutes(
         return res.status(response.status).json({ error: `Failed to fetch from main platform: ${errorText}` });
       }
 
-      const eventRequests = await response.json();
+      const data = await response.json();
+      const eventRequests = Array.isArray(data) ? data : (data.eventRequests || data.data || []);
       let importedCount = 0;
+
+      // Get existing records once for efficiency
+      const existingRecords = await storage.listIntakeRecords();
+      const existingExternalIds = new Set(existingRecords.map(r => r.externalEventId).filter(Boolean));
 
       // Map and import each event request
       for (const event of eventRequests) {
-        // Check if already imported (by externalEventId)
-        const existingRecords = await storage.listIntakeRecords();
-        const alreadyExists = existingRecords.some(r => r.externalEventId === event.id?.toString());
+        const externalId = (event.id || event.eventRequestId)?.toString();
         
-        if (!alreadyExists) {
-          await storage.createIntakeRecord({
-            externalEventId: event.id?.toString(),
-            organizationName: event.organizationName || event.organization_name || 'Unknown Org',
-            contactName: event.contactName || event.contact_name || 'Unknown Contact',
-            contactEmail: event.contactEmail || event.contact_email || '',
-            contactPhone: event.contactPhone || event.contact_phone || '',
-            eventDate: event.eventDate || event.event_date ? new Date(event.eventDate || event.event_date) : null,
-            eventTime: event.eventTime || event.event_time || '',
-            location: event.location || event.address || '',
-            attendeeCount: event.attendeeCount || event.attendee_count || 0,
-            sandwichCount: event.sandwichCount || event.sandwich_count || 0,
-            dietaryRestrictions: event.dietaryRestrictions || event.dietary_restrictions || '',
-            requiresRefrigeration: event.requiresRefrigeration || event.requires_refrigeration || false,
-            hasIndoorSpace: (event.hasIndoorSpace || event.has_indoor_space) ?? true,
-            hasRefrigeration: event.hasRefrigeration || event.has_refrigeration || false,
-            deliveryInstructions: event.deliveryInstructions || event.delivery_instructions || '',
-            status: 'New',
-            ownerId: null,
-            flags: [],
-            internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
-          });
-          importedCount++;
+        // Skip if already imported
+        if (existingExternalIds.has(externalId)) {
+          continue;
         }
+        
+        await storage.createIntakeRecord({
+          externalEventId: externalId,
+          organizationName: event.organizationName || event.organization_name || event.orgName || 'Unknown Org',
+          contactName: event.contactName || event.contact_name || event.primaryContact || 'Unknown Contact',
+          contactEmail: event.contactEmail || event.contact_email || event.email || '',
+          contactPhone: event.contactPhone || event.contact_phone || event.phone || '',
+          eventDate: event.eventDate || event.event_date || event.preferredDate ? new Date(event.eventDate || event.event_date || event.preferredDate) : null,
+          eventTime: event.eventTime || event.event_time || event.preferredTime || '',
+          location: event.location || event.address || event.eventLocation || '',
+          attendeeCount: event.attendeeCount || event.attendee_count || event.estimatedAttendees || 0,
+          sandwichCount: event.sandwichCount || event.sandwich_count || event.sandwichesRequested || 0,
+          dietaryRestrictions: event.dietaryRestrictions || event.dietary_restrictions || event.dietaryNotes || '',
+          requiresRefrigeration: event.requiresRefrigeration || event.requires_refrigeration || false,
+          hasIndoorSpace: (event.hasIndoorSpace || event.has_indoor_space || event.indoorSpace) ?? true,
+          hasRefrigeration: event.hasRefrigeration || event.has_refrigeration || event.refrigerationAvailable || false,
+          deliveryInstructions: event.deliveryInstructions || event.delivery_instructions || event.specialInstructions || '',
+          status: 'New',
+          ownerId: userId,
+          flags: [],
+          internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
+        });
+        importedCount++;
       }
 
       await storage.createSyncLog({
@@ -511,6 +535,7 @@ export async function registerRoutes(
         message: `Imported ${importedCount} new event requests` 
       });
     } catch (error: any) {
+      console.error('Sync pull error:', error);
       await storage.createSyncLog({
         direction: 'pull',
         recordCount: 0,
