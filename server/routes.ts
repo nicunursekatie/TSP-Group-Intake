@@ -4,6 +4,10 @@ import { storage } from "./storage";
 import { insertUserSchema, insertIntakeRecordSchema, updateIntakeRecordSchema, insertTaskSchema } from "@shared/schema";
 import { addDays, subDays } from "date-fns";
 
+// Platform integration config
+const MAIN_PLATFORM_URL = process.env.MAIN_PLATFORM_URL;
+const MAIN_PLATFORM_API_KEY = process.env.MAIN_PLATFORM_API_KEY;
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -205,23 +209,165 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync (stub for now - will need your main app's API details)
+  // Platform Sync - Pull new/in-progress event requests from main platform
   app.post("/api/sync/pull", async (req, res) => {
     try {
-      // TODO: Implement actual API call to your main platform
-      // For now, just log the sync attempt
+      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
+        await storage.createSyncLog({
+          direction: 'pull',
+          recordCount: 0,
+          status: 'error',
+          error: 'Missing MAIN_PLATFORM_URL or MAIN_PLATFORM_API_KEY environment variables',
+        });
+        return res.status(400).json({ 
+          error: "Sync not configured. Please set MAIN_PLATFORM_URL and MAIN_PLATFORM_API_KEY." 
+        });
+      }
+
+      // Fetch event requests from main platform
+      const response = await fetch(`${MAIN_PLATFORM_URL}/api/event-requests?status=new,in_progress`, {
+        headers: {
+          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        await storage.createSyncLog({
+          direction: 'pull',
+          recordCount: 0,
+          status: 'error',
+          error: `API Error: ${response.status} - ${errorText}`,
+        });
+        return res.status(response.status).json({ error: `Failed to fetch from main platform: ${errorText}` });
+      }
+
+      const eventRequests = await response.json();
+      let importedCount = 0;
+
+      // Map and import each event request
+      for (const event of eventRequests) {
+        // Check if already imported (by externalEventId)
+        const existingRecords = await storage.listIntakeRecords();
+        const alreadyExists = existingRecords.some(r => r.externalEventId === event.id?.toString());
+        
+        if (!alreadyExists) {
+          await storage.createIntakeRecord({
+            externalEventId: event.id?.toString(),
+            organizationName: event.organizationName || event.organization_name || 'Unknown Org',
+            contactName: event.contactName || event.contact_name || 'Unknown Contact',
+            contactEmail: event.contactEmail || event.contact_email || '',
+            contactPhone: event.contactPhone || event.contact_phone || '',
+            eventDate: event.eventDate || event.event_date ? new Date(event.eventDate || event.event_date) : null,
+            eventTime: event.eventTime || event.event_time || '',
+            location: event.location || event.address || '',
+            attendeeCount: event.attendeeCount || event.attendee_count || 0,
+            sandwichCount: event.sandwichCount || event.sandwich_count || 0,
+            dietaryRestrictions: event.dietaryRestrictions || event.dietary_restrictions || '',
+            requiresRefrigeration: event.requiresRefrigeration || event.requires_refrigeration || false,
+            hasIndoorSpace: (event.hasIndoorSpace || event.has_indoor_space) ?? true,
+            hasRefrigeration: event.hasRefrigeration || event.has_refrigeration || false,
+            deliveryInstructions: event.deliveryInstructions || event.delivery_instructions || '',
+            status: 'New',
+            ownerId: null,
+            flags: [],
+            internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
+          });
+          importedCount++;
+        }
+      }
+
+      await storage.createSyncLog({
+        direction: 'pull',
+        recordCount: importedCount,
+        status: 'success',
+        error: null,
+      });
+
+      res.json({ 
+        success: true, 
+        imported: importedCount,
+        total: eventRequests.length,
+        message: `Imported ${importedCount} new event requests` 
+      });
+    } catch (error: any) {
       await storage.createSyncLog({
         direction: 'pull',
         recordCount: 0,
         status: 'error',
-        error: 'Not yet implemented - needs main platform API endpoint',
+        error: error.message || 'Unknown error',
       });
-      
-      res.status(501).json({ 
-        error: "Sync not yet configured. Please provide your main platform's API endpoint." 
+      res.status(500).json({ error: error.message || "Sync failed" });
+    }
+  });
+
+  // Platform Sync - Push completed intake data back to main platform
+  app.post("/api/sync/push/:id", async (req, res) => {
+    try {
+      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
+        return res.status(400).json({ 
+          error: "Sync not configured. Please set MAIN_PLATFORM_URL and MAIN_PLATFORM_API_KEY." 
+        });
+      }
+
+      const record = await storage.getIntakeRecord(req.params.id);
+      if (!record) {
+        return res.status(404).json({ error: "Record not found" });
+      }
+
+      if (!record.externalEventId) {
+        return res.status(400).json({ error: "This record was not imported from the main platform" });
+      }
+
+      // Push updates back to main platform
+      const response = await fetch(`${MAIN_PLATFORM_URL}/api/event-requests/${record.externalEventId}`, {
+        method: 'PATCH',
+        headers: {
+          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          organizationName: record.organizationName,
+          contactName: record.contactName,
+          contactEmail: record.contactEmail,
+          contactPhone: record.contactPhone,
+          eventDate: record.eventDate,
+          eventTime: record.eventTime,
+          location: record.location,
+          attendeeCount: record.attendeeCount,
+          sandwichCount: record.sandwichCount,
+          dietaryRestrictions: record.dietaryRestrictions,
+          hasIndoorSpace: record.hasIndoorSpace,
+          hasRefrigeration: record.hasRefrigeration,
+          deliveryInstructions: record.deliveryInstructions,
+          intakeStatus: record.status,
+          intakeNotes: record.internalNotes,
+          intakeFlags: record.flags,
+        }),
       });
-    } catch (error) {
-      res.status(500).json({ error: "Sync failed" });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        await storage.createSyncLog({
+          direction: 'push',
+          recordCount: 0,
+          status: 'error',
+          error: `API Error: ${response.status} - ${errorText}`,
+        });
+        return res.status(response.status).json({ error: `Failed to update main platform: ${errorText}` });
+      }
+
+      await storage.createSyncLog({
+        direction: 'push',
+        recordCount: 1,
+        status: 'success',
+        error: null,
+      });
+
+      res.json({ success: true, message: "Successfully synced to main platform" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Push sync failed" });
     }
   });
 
