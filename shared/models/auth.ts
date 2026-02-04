@@ -25,6 +25,12 @@ export const users = pgTable("users", {
   approvalStatus: text("approval_status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
   approvedBy: varchar("approved_by"),
   approvedAt: timestamp("approved_at"),
+  phoneNumber: varchar("phone_number"),
+  smsAlertsEnabled: text("sms_alerts_enabled").notNull().default('false'),
+  emailNotificationsEnabled: text("email_notifications_enabled").notNull().default('true'),
+  notifyOnNewIntake: text("notify_on_new_intake").notNull().default('true'),
+  notifyOnTaskDue: text("notify_on_task_due").notNull().default('true'),
+  notifyOnStatusChange: text("notify_on_status_change").notNull().default('false'),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

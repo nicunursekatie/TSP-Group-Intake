@@ -8,7 +8,8 @@ import {
   LogOut, 
   Sandwich, 
   Menu,
-  Shield
+  Shield,
+  Settings
 } from "lucide-react";
 import { useState } from "react";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
@@ -72,6 +73,19 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             </Button>
           </Link>
         )}
+        <Link href="/settings">
+          <Button 
+            variant="ghost" 
+            className={cn(
+              "w-full justify-start gap-3",
+              location === "/settings" && "bg-[#236383]/10 text-[#236383] font-medium"
+            )}
+            data-testid="nav-settings"
+          >
+            <Settings className="h-4 w-4" />
+            Account Settings
+          </Button>
+        </Link>
       </nav>
 
       <div className="p-4 border-t border-sidebar-border">

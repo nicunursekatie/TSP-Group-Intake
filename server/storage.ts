@@ -11,6 +11,15 @@ import type {
 } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
 
+export interface UserSettings {
+  phoneNumber?: string | null;
+  smsAlertsEnabled?: string;
+  emailNotificationsEnabled?: string;
+  notifyOnNewIntake?: string;
+  notifyOnTaskDue?: string;
+  notifyOnStatusChange?: string;
+}
+
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -18,6 +27,7 @@ export interface IStorage {
   approveUser(id: string, approvedBy: string, role: string): Promise<User | undefined>;
   rejectUser(id: string): Promise<User | undefined>;
   updateUserRole(id: string, role: string): Promise<User | undefined>;
+  updateUserSettings(id: string, settings: UserSettings): Promise<User | undefined>;
   
   // Intake Records
   getIntakeRecord(id: string): Promise<IntakeRecord | undefined>;
@@ -77,6 +87,17 @@ export class DbStorage implements IStorage {
     const result = await db.update(users)
       .set({ 
         role,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async updateUserSettings(id: string, settings: UserSettings): Promise<User | undefined> {
+    const result = await db.update(users)
+      .set({ 
+        ...settings,
         updatedAt: new Date()
       })
       .where(eq(users.id, id))

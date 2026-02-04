@@ -95,6 +95,168 @@ export async function registerRoutes(
     }
   });
 
+  // User Settings routes
+  app.get("/api/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await authStorage.getUser(userId!);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({
+        email: user.email,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phoneNumber: user.phoneNumber,
+        smsAlertsEnabled: user.smsAlertsEnabled === 'true',
+        emailNotificationsEnabled: user.emailNotificationsEnabled === 'true',
+        notifyOnNewIntake: user.notifyOnNewIntake === 'true',
+        notifyOnTaskDue: user.notifyOnTaskDue === 'true',
+        notifyOnStatusChange: user.notifyOnStatusChange === 'true',
+      });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch settings" });
+    }
+  });
+
+  app.patch("/api/settings", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const body = req.body;
+      
+      // Only include fields that are explicitly provided in the request
+      const updates: any = {};
+      
+      if ('phoneNumber' in body) {
+        updates.phoneNumber = body.phoneNumber;
+      }
+      if ('smsAlertsEnabled' in body) {
+        updates.smsAlertsEnabled = body.smsAlertsEnabled ? 'true' : 'false';
+      }
+      if ('emailNotificationsEnabled' in body) {
+        updates.emailNotificationsEnabled = body.emailNotificationsEnabled ? 'true' : 'false';
+      }
+      if ('notifyOnNewIntake' in body) {
+        updates.notifyOnNewIntake = body.notifyOnNewIntake ? 'true' : 'false';
+      }
+      if ('notifyOnTaskDue' in body) {
+        updates.notifyOnTaskDue = body.notifyOnTaskDue ? 'true' : 'false';
+      }
+      if ('notifyOnStatusChange' in body) {
+        updates.notifyOnStatusChange = body.notifyOnStatusChange ? 'true' : 'false';
+      }
+      
+      const user = await storage.updateUserSettings(userId!, updates);
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update settings" });
+    }
+  });
+
+  app.post("/api/settings/verify-phone", isAuthenticated, async (req, res) => {
+    try {
+      const { phoneNumber } = req.body;
+      if (!phoneNumber) {
+        return res.status(400).json({ error: "Phone number required" });
+      }
+      
+      const { sendVerificationSMS } = await import("./services/twilio");
+      const code = await sendVerificationSMS(phoneNumber);
+      
+      if (!code) {
+        return res.status(500).json({ error: "Failed to send verification SMS" });
+      }
+      
+      // Store code in session for verification (simplified - in production use proper storage)
+      (req.session as any).phoneVerificationCode = code;
+      (req.session as any).phoneVerificationNumber = phoneNumber;
+      
+      res.json({ success: true, message: "Verification code sent" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to send verification" });
+    }
+  });
+
+  app.post("/api/settings/confirm-phone", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const { code } = req.body;
+      
+      const storedCode = (req.session as any).phoneVerificationCode;
+      const phoneNumber = (req.session as any).phoneVerificationNumber;
+      
+      if (!storedCode || !phoneNumber) {
+        return res.status(400).json({ error: "No verification pending" });
+      }
+      
+      if (code !== storedCode) {
+        return res.status(400).json({ error: "Invalid verification code" });
+      }
+      
+      // Update user with verified phone number
+      await storage.updateUserSettings(userId!, { phoneNumber });
+      
+      // Clear session data
+      delete (req.session as any).phoneVerificationCode;
+      delete (req.session as any).phoneVerificationNumber;
+      
+      res.json({ success: true, message: "Phone number verified" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to verify phone" });
+    }
+  });
+
+  app.post("/api/settings/test-email", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await authStorage.getUser(userId!);
+      
+      if (!user?.email) {
+        return res.status(400).json({ error: "No email address on file" });
+      }
+      
+      const { sendNotificationEmail } = await import("./services/sendgrid");
+      const success = await sendNotificationEmail(
+        user.email,
+        "Test Notification",
+        "This is a test email from TSP Intake to confirm your email notifications are working correctly."
+      );
+      
+      if (!success) {
+        return res.status(500).json({ error: "Failed to send test email" });
+      }
+      
+      res.json({ success: true, message: "Test email sent" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to send test email" });
+    }
+  });
+
+  app.post("/api/settings/test-sms", isAuthenticated, async (req, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await authStorage.getUser(userId!);
+      
+      if (!user?.phoneNumber) {
+        return res.status(400).json({ error: "No phone number on file" });
+      }
+      
+      const { sendSMS } = await import("./services/twilio");
+      const success = await sendSMS(
+        user.phoneNumber,
+        "TSP Intake: Test SMS notification. Your alerts are working!"
+      );
+      
+      if (!success) {
+        return res.status(500).json({ error: "Failed to send test SMS" });
+      }
+      
+      res.json({ success: true, message: "Test SMS sent" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || "Failed to send test SMS" });
+    }
+  });
+
   // Intake Records (protected - requires authenticated and approved users)
   app.get("/api/intake-records", isAuthenticated, isApproved, async (req, res) => {
     try {

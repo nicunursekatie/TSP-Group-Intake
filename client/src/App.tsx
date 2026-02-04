@@ -9,6 +9,7 @@ import Dashboard from "@/pages/dashboard";
 import IntakePage from "@/pages/intake";
 import AdminPage from "@/pages/admin";
 import PendingApproval from "@/pages/pending-approval";
+import SettingsPage from "@/pages/settings";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { useCreateIntakeRecord } from "@/lib/queries";
@@ -114,6 +115,10 @@ function Router() {
       
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} requireAdmin />
+      </Route>
+      
+      <Route path="/settings">
+        <ProtectedRoute component={SettingsPage} />
       </Route>
       
       <Route path="/new">
