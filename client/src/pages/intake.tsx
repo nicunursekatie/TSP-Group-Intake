@@ -1,28 +1,25 @@
-import { useEffect } from "react";
 import { useRoute, useLocation } from "wouter";
-import { useStore } from "@/lib/store";
 import { IntakeForm } from "@/components/intake-form";
 import { TaskSidebar } from "@/components/task-sidebar";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
+import { useIntakeRecord } from "@/lib/queries";
 
 export default function IntakePage() {
   const [match, params] = useRoute("/intake/:id");
   const [, setLocation] = useLocation();
   const id = params?.id;
 
-  const intakeRecords = useStore(state => state.intakeRecords);
-  const addIntake = useStore(state => state.addIntake);
-  
-  // Logic to handle "New" vs "Edit"
-  // Since we have a dedicated /new route logic in the dashboard, 
-  // let's handle the creation redirection if we are at /new route or ensure we find the record
-  
-  // Actually, let's create a wrapper that handles "new" creation separately or we can just create it on mount if ID is "new"
-  // But standard pattern is: Click "New" -> Creates Record -> Redirects to /intake/UUID
-  
-  const record = intakeRecords.find(r => r.id === id);
+  const { data: record, isLoading } = useIntakeRecord(id);
+
+  if (isLoading) {
+    return (
+      <div className="h-[50vh] flex items-center justify-center">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (!record) {
     return (

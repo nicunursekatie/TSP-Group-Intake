@@ -1,9 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useStore } from "@/lib/store";
-import { IntakeRecord, IntakeStatus } from "@/lib/types";
+import { IntakeRecord } from "@/lib/types";
 import { format } from "date-fns";
 import {
   Form,
@@ -31,12 +30,12 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { AlertTriangle, Copy, Save, Phone } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { useUpdateIntakeRecord } from "@/lib/queries";
+import { useQueryClient } from "@tanstack/react-query";
 
 const intakeSchema = z.object({
   organizationName: z.string().min(1, "Required"),
@@ -60,47 +59,61 @@ const intakeSchema = z.object({
 type IntakeFormValues = z.infer<typeof intakeSchema>;
 
 export function IntakeForm({ intake }: { intake: IntakeRecord }) {
-  const updateIntake = useStore((state) => state.updateIntake);
+  const updateMutation = useUpdateIntakeRecord();
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const queryClient = useQueryClient();
 
   const form = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeSchema),
     defaultValues: {
       organizationName: intake.organizationName,
       contactName: intake.contactName,
-      contactEmail: intake.contactEmail,
-      contactPhone: intake.contactPhone,
+      contactEmail: intake.contactEmail || "",
+      contactPhone: intake.contactPhone || "",
       eventDate: intake.eventDate ? format(new Date(intake.eventDate), "yyyy-MM-dd") : "",
-      eventTime: intake.eventTime,
-      location: intake.location,
+      eventTime: intake.eventTime || "",
+      location: intake.location || "",
       attendeeCount: intake.attendeeCount,
       sandwichCount: intake.sandwichCount,
-      dietaryRestrictions: intake.dietaryRestrictions,
+      dietaryRestrictions: intake.dietaryRestrictions || "",
       requiresRefrigeration: intake.requiresRefrigeration,
       hasIndoorSpace: intake.hasIndoorSpace,
       hasRefrigeration: intake.hasRefrigeration,
-      deliveryInstructions: intake.deliveryInstructions,
+      deliveryInstructions: intake.deliveryInstructions || "",
       status: intake.status,
-      internalNotes: intake.internalNotes,
+      internalNotes: intake.internalNotes || "",
     },
   });
 
-  // Autosave Logic
+  // Debounced autosave
   useEffect(() => {
+    let timeoutId: NodeJS.Timeout;
+    
     const subscription = form.watch((value) => {
-      // In a real app, you'd debounce this
-      const updates = {
-        ...value,
-        eventDate: value.eventDate ? new Date(value.eventDate).toISOString() : undefined,
-      };
-      
-      // We cast status back to specific type because Zod treats it as string
-      // @ts-ignore
-      updateIntake(intake.id, updates);
-      setLastSaved(new Date());
+      clearTimeout(timeoutId);
+      timeoutId = setTimeout(() => {
+        const updates = {
+          ...value,
+          eventDate: value.eventDate ? new Date(value.eventDate).toISOString() : null,
+        };
+        
+        updateMutation.mutate(
+          { id: intake.id, data: updates },
+          {
+            onSuccess: () => {
+              setLastSaved(new Date());
+              queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+            }
+          }
+        );
+      }, 1000);
     });
-    return () => subscription.unsubscribe();
-  }, [form.watch, intake.id, updateIntake]);
+    
+    return () => {
+      clearTimeout(timeoutId);
+      subscription.unsubscribe();
+    };
+  }, [form, intake.id, updateMutation, queryClient]);
 
   // Derived flags for UI warnings
   const sandwichCount = form.watch("sandwichCount");

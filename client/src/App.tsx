@@ -8,6 +8,7 @@ import Dashboard from "@/pages/dashboard";
 import IntakePage from "@/pages/intake";
 import { useStore } from "@/lib/store";
 import { useEffect } from "react";
+import { useCreateIntakeRecord } from "@/lib/queries";
 
 function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
   const user = useStore(state => state.currentUser);
@@ -28,34 +29,40 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
   );
 }
 
-// Helper to create a new intake and redirect
 function NewIntakeRedirect() {
-  const addIntake = useStore(state => state.addIntake);
+  const createMutation = useCreateIntakeRecord();
   const [, setLocation] = useLocation();
+  const user = useStore(state => state.currentUser);
 
   useEffect(() => {
-    const id = addIntake({
-      organizationName: "",
-      contactName: "",
-      contactEmail: "",
-      contactPhone: "",
-      eventDate: "",
-      eventTime: "",
-      location: "",
-      attendeeCount: 0,
-      sandwichCount: 0,
-      dietaryRestrictions: "",
-      requiresRefrigeration: false,
-      hasIndoorSpace: true,
-      hasRefrigeration: false,
-      deliveryInstructions: "",
-      status: "New",
-      ownerId: null,
-      flags: [],
-      internalNotes: ""
-    });
-    setLocation(`/intake/${id}`);
-  }, [addIntake, setLocation]);
+    if (user) {
+      createMutation.mutate({
+        organizationName: "",
+        contactName: "",
+        contactEmail: "",
+        contactPhone: "",
+        eventDate: null,
+        eventTime: "",
+        location: "",
+        attendeeCount: 0,
+        sandwichCount: 0,
+        dietaryRestrictions: "",
+        requiresRefrigeration: false,
+        hasIndoorSpace: true,
+        hasRefrigeration: false,
+        deliveryInstructions: "",
+        status: "New",
+        ownerId: user.id,
+        flags: [],
+        internalNotes: "",
+        lastEditedBy: user.id,
+      }, {
+        onSuccess: (record) => {
+          setLocation(`/intake/${record.id}`);
+        }
+      });
+    }
+  }, [user, createMutation, setLocation]);
 
   return null;
 }

@@ -1,7 +1,6 @@
 import { useState } from "react";
-import { useStore } from "@/lib/store";
 import { Link } from "wouter";
-import { format, parseISO } from "date-fns";
+import { format } from "date-fns";
 import { 
   Table, 
   TableBody, 
@@ -23,28 +22,31 @@ import {
 import { 
   Plus, 
   Search, 
-  AlertTriangle, 
   Calendar,
   Filter,
   RefreshCw,
-  ArrowRightLeft
+  Loader2
 } from "lucide-react";
-import { IntakeStatus } from "@/lib/types";
+import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
 
+type IntakeStatus = 'New' | 'Call Scheduled' | 'Call Complete' | 'Pre-Event Confirmed' | 'Completed';
+
 export default function Dashboard() {
-  const intakeRecords = useStore(state => state.intakeRecords);
+  const { data: intakeRecords = [], isLoading } = useIntakeRecords();
+  const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [isSyncing, setIsSyncing] = useState(false);
 
   const handleSync = () => {
-    setIsSyncing(true);
-    // Simulate API call to main platform
-    setTimeout(() => {
-      setIsSyncing(false);
-      toast.success("Synced 3 new requests from Main Platform");
-    }, 1500);
+    syncMutation.mutate(undefined, {
+      onError: (error: any) => {
+        toast.error(error.message || "Sync failed");
+      },
+      onSuccess: () => {
+        toast.success("Synced with Main Platform");
+      }
+    });
   };
 
   const filteredRecords = intakeRecords.filter(record => {
@@ -57,7 +59,7 @@ export default function Dashboard() {
     return matchesSearch && matchesStatus;
   });
 
-  const getStatusColor = (status: IntakeStatus) => {
+  const getStatusColor = (status: string) => {
     switch (status) {
       case 'New': return "bg-blue-100 text-blue-800 border-blue-200";
       case 'Call Scheduled': return "bg-purple-100 text-purple-800 border-purple-200";
@@ -67,6 +69,14 @@ export default function Dashboard() {
       default: return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[50vh]">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   return (
     <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto">
@@ -79,11 +89,11 @@ export default function Dashboard() {
           <Button 
             variant="outline" 
             onClick={handleSync}
-            disabled={isSyncing}
+            disabled={syncMutation.isPending}
             className="hidden sm:flex"
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${isSyncing ? 'animate-spin' : ''}`} />
-            {isSyncing ? 'Syncing...' : 'Sync with Platform'}
+            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+            {syncMutation.isPending ? 'Syncing...' : 'Sync with Platform'}
           </Button>
           <Link href="/new">
             <Button className="shadow-lg hover:shadow-xl transition-all">
@@ -159,7 +169,7 @@ export default function Dashboard() {
                   <TableCell>
                     <div className="flex items-center gap-2 text-sm">
                       <Calendar className="h-3 w-3 text-muted-foreground" />
-                      {record.eventDate ? format(parseISO(record.eventDate), "MMM d, yyyy") : "-"}
+                      {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "-"}
                     </div>
                   </TableCell>
                   <TableCell className="text-right font-mono">
@@ -167,14 +177,15 @@ export default function Dashboard() {
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">
-                      {record.flags.length > 0 && (
+                      {Array.isArray(record.flags) && record.flags.length > 0 ? (
                         record.flags.map((flag, i) => (
                           <Badge key={i} variant="destructive" className="text-[10px] px-1 py-0 h-5">
                              {flag}
                           </Badge>
                         ))
+                      ) : (
+                        <span className="text-muted-foreground text-xs">-</span>
                       )}
-                      {record.flags.length === 0 && <span className="text-muted-foreground text-xs">-</span>}
                     </div>
                   </TableCell>
                   <TableCell>

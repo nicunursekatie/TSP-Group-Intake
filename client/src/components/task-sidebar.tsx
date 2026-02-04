@@ -1,17 +1,23 @@
-import { useStore } from "@/lib/store";
-import { Task } from "@/lib/types";
-import { Checkbox } from "@/components/ui/checkbox";
-import { format, parseISO, isPast, isToday } from "date-fns";
+import { format, isPast, isToday } from "date-fns";
 import { cn } from "@/lib/utils";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
-import { CheckCircle2, Clock, AlertCircle } from "lucide-react";
+import { CheckCircle2, Clock, AlertCircle, Loader2 } from "lucide-react";
+import { Checkbox } from "@/components/ui/checkbox";
+import { useTasks, useUpdateTask } from "@/lib/queries";
 
 export function TaskSidebar({ intakeId }: { intakeId: string }) {
-  // Select all tasks to avoid creating a new array reference on every selector call
-  // which can cause "Maximum update depth exceeded" errors
-  const allTasks = useStore(state => state.tasks);
-  const tasks = allTasks.filter(t => t.intakeId === intakeId);
-  const toggleTask = useStore(state => state.toggleTask);
+  const { data: tasks = [], isLoading } = useTasks(intakeId);
+  const updateTaskMutation = useUpdateTask();
+
+  const handleToggle = (taskId: string, currentCompleted: boolean) => {
+    updateTaskMutation.mutate({
+      id: taskId,
+      data: {
+        completed: !currentCompleted,
+        completedAt: !currentCompleted ? new Date() : null,
+      },
+    });
+  };
 
   // Sort: Overdue & Incomplete first, then by date
   const sortedTasks = [...tasks].sort((a, b) => {
@@ -20,6 +26,14 @@ export function TaskSidebar({ intakeId }: { intakeId: string }) {
     }
     return a.completed ? 1 : -1;
   });
+
+  if (isLoading) {
+    return (
+      <div className="h-full flex items-center justify-center">
+        <Loader2 className="h-6 w-6 animate-spin text-primary" />
+      </div>
+    );
+  }
 
   if (tasks.length === 0) {
     return (
@@ -46,8 +60,8 @@ export function TaskSidebar({ intakeId }: { intakeId: string }) {
       
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
         {sortedTasks.map(task => {
-          const isOverdue = !task.completed && isPast(parseISO(task.dueDate)) && !isToday(parseISO(task.dueDate));
-          const isDueToday = !task.completed && isToday(parseISO(task.dueDate));
+          const isOverdue = !task.completed && isPast(new Date(task.dueDate)) && !isToday(new Date(task.dueDate));
+          const isDueToday = !task.completed && isToday(new Date(task.dueDate));
           
           return (
             <div 
@@ -62,7 +76,7 @@ export function TaskSidebar({ intakeId }: { intakeId: string }) {
                 <Checkbox 
                   id={task.id} 
                   checked={task.completed} 
-                  onCheckedChange={() => toggleTask(task.id)}
+                  onCheckedChange={() => handleToggle(task.id, task.completed)}
                   className="mt-0.5"
                 />
                 <div className="space-y-1 w-full">
@@ -85,7 +99,7 @@ export function TaskSidebar({ intakeId }: { intakeId: string }) {
                     )}>
                       {isOverdue && <AlertCircle className="h-3 w-3" />}
                       {!isOverdue && <Clock className="h-3 w-3" />}
-                      {format(parseISO(task.dueDate), "MMM d")}
+                      {format(new Date(task.dueDate), "MMM d")}
                     </span>
                     {task.completed && (
                         <span className="text-green-600 font-medium">Done</span>

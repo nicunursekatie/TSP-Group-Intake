@@ -7,29 +7,28 @@ import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle }
 import { Label } from "@/components/ui/label";
 import { Sandwich, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { api } from "@/lib/api";
 
 export default function AuthPage() {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-  const login = useStore(state => state.login);
+  const setCurrentUser = useStore(state => state.setCurrentUser);
   const [, setLocation] = useLocation();
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
     
-    // Simulate network delay
-    setTimeout(() => {
-      const success = login(email);
+    try {
+      const user = await api.login(email);
+      setCurrentUser(user);
+      toast.success("Welcome back!");
+      setLocation("/");
+    } catch (error) {
+      toast.error("User not found. Try 'owner@tsp.org' or 'admin@tsp.org'");
+    } finally {
       setLoading(false);
-      
-      if (success) {
-        toast.success("Welcome back!");
-        setLocation("/");
-      } else {
-        toast.error("User not found. Try 'owner@tsp.org' or 'admin@tsp.org'");
-      }
-    }, 800);
+    }
   };
 
   return (
