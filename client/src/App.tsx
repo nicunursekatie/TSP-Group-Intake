@@ -1,26 +1,48 @@
 import { Switch, Route, useLocation } from "wouter";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "sonner";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout";
-import AuthPage from "@/pages/auth";
+import LandingPage from "@/pages/landing";
 import Dashboard from "@/pages/dashboard";
 import IntakePage from "@/pages/intake";
-import { useStore } from "@/lib/store";
+import AdminPage from "@/pages/admin";
+import PendingApproval from "@/pages/pending-approval";
+import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
 import { useCreateIntakeRecord } from "@/lib/queries";
 
-function ProtectedRoute({ component: Component }: { component: React.ComponentType }) {
-  const user = useStore(state => state.currentUser);
+const queryClient = new QueryClient();
+
+function ProtectedRoute({ component: Component, requireAdmin = false }: { component: React.ComponentType, requireAdmin?: boolean }) {
+  const { user, isLoading, isAuthenticated } = useAuth();
   const [, setLocation] = useLocation();
 
   useEffect(() => {
-    if (!user) {
-      setLocation("/auth");
+    if (!isLoading && !isAuthenticated) {
+      setLocation("/");
     }
-  }, [user, setLocation]);
+  }, [isLoading, isAuthenticated, setLocation]);
 
-  if (!user) return null;
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="animate-spin w-8 h-8 border-4 border-[#236383] border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
+  if (!isAuthenticated || !user) return null;
+
+  if (user.approvalStatus !== 'approved') {
+    return <PendingApproval />;
+  }
+
+  if (requireAdmin && user.role !== 'admin') {
+    setLocation("/");
+    return null;
+  }
 
   return (
     <Layout>
@@ -32,16 +54,16 @@ function ProtectedRoute({ component: Component }: { component: React.ComponentTy
 function NewIntakeRedirect() {
   const createMutation = useCreateIntakeRecord();
   const [, setLocation] = useLocation();
-  const user = useStore(state => state.currentUser);
+  const { user } = useAuth();
 
   useEffect(() => {
-    if (user) {
+    if (user && user.approvalStatus === 'approved') {
       createMutation.mutate({
         organizationName: "",
         contactName: "",
         contactEmail: "",
         contactPhone: "",
-        eventDate: null,
+        eventDate: undefined,
         eventTime: "",
         location: "",
         attendeeCount: 0,
@@ -62,15 +84,37 @@ function NewIntakeRedirect() {
         }
       });
     }
-  }, [user, createMutation, setLocation]);
+  }, [user]);
 
   return null;
 }
 
 function Router() {
+  const { isAuthenticated, isLoading, user } = useAuth();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="animate-spin w-8 h-8 border-4 border-[#236383] border-t-transparent rounded-full" />
+      </div>
+    );
+  }
+
   return (
     <Switch>
-      <Route path="/auth" component={AuthPage} />
+      <Route path="/">
+        {isAuthenticated && user?.approvalStatus === 'approved' ? (
+          <Layout><Dashboard /></Layout>
+        ) : isAuthenticated ? (
+          <PendingApproval />
+        ) : (
+          <LandingPage />
+        )}
+      </Route>
+      
+      <Route path="/admin">
+        <ProtectedRoute component={AdminPage} requireAdmin />
+      </Route>
       
       <Route path="/new">
         <ProtectedRoute component={NewIntakeRedirect} />
@@ -78,10 +122,6 @@ function Router() {
       
       <Route path="/intake/:id">
         <ProtectedRoute component={IntakePage} />
-      </Route>
-      
-      <Route path="/">
-        <ProtectedRoute component={Dashboard} />
       </Route>
 
       <Route component={NotFound} />
@@ -91,11 +131,11 @@ function Router() {
 
 function App() {
   return (
-    <>
+    <QueryClientProvider client={queryClient}>
       <Router />
       <Toaster />
       <Sonner />
-    </>
+    </QueryClientProvider>
   );
 }
 

@@ -3,13 +3,9 @@ import { pgTable, text, varchar, timestamp, integer, boolean, jsonb } from "driz
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-export const users = pgTable("users", {
-  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
-  email: text("email").notNull().unique(),
-  name: text("name").notNull(),
-  role: text("role").notNull(), // 'owner' | 'admin'
-  createdAt: timestamp("created_at").notNull().defaultNow(),
-});
+// Re-export auth models (users and sessions tables)
+export * from "./models/auth";
+import { users } from "./models/auth";
 
 export const intakeRecords = pgTable("intake_records", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -73,11 +69,6 @@ export const platformSyncLog = pgTable("platform_sync_log", {
 });
 
 // Insert Schemas
-export const insertUserSchema = createInsertSchema(users).omit({
-  id: true,
-  createdAt: true,
-});
-
 export const insertIntakeRecordSchema = createInsertSchema(intakeRecords, {
   eventDate: z.union([z.string(), z.date()]).optional().nullable().transform(val => {
     if (!val) return null;
@@ -96,9 +87,6 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
 });
 
 // Types
-export type User = typeof users.$inferSelect;
-export type InsertUser = z.infer<typeof insertUserSchema>;
-
 export type IntakeRecord = typeof intakeRecords.$inferSelect;
 export type InsertIntakeRecord = z.infer<typeof insertIntakeRecordSchema>;
 export type UpdateIntakeRecord = z.infer<typeof updateIntakeRecordSchema>;

@@ -1,8 +1,7 @@
 import { db } from "./db";
 import { users, intakeRecords, tasks, platformSyncLog } from "@shared/schema";
 import type { 
-  User, 
-  InsertUser, 
+  User,
   IntakeRecord, 
   InsertIntakeRecord, 
   UpdateIntakeRecord,
@@ -10,14 +9,15 @@ import type {
   InsertTask,
   PlatformSyncLog
 } from "@shared/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
-  getUserByEmail(email: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
   listUsers(): Promise<User[]>;
+  approveUser(id: string, approvedBy: string, role: string): Promise<User | undefined>;
+  rejectUser(id: string): Promise<User | undefined>;
+  updateUserRole(id: string, role: string): Promise<User | undefined>;
   
   // Intake Records
   getIntakeRecord(id: string): Promise<IntakeRecord | undefined>;
@@ -44,18 +44,44 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async getUserByEmail(email: string): Promise<User | undefined> {
-    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
-    return result[0];
-  }
-
-  async createUser(user: InsertUser): Promise<User> {
-    const result = await db.insert(users).values(user).returning();
-    return result[0];
-  }
-
   async listUsers(): Promise<User[]> {
-    return db.select().from(users);
+    return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async approveUser(id: string, approvedBy: string, role: string): Promise<User | undefined> {
+    const result = await db.update(users)
+      .set({ 
+        approvalStatus: 'approved', 
+        role, 
+        approvedBy, 
+        approvedAt: new Date(),
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async rejectUser(id: string): Promise<User | undefined> {
+    const result = await db.update(users)
+      .set({ 
+        approvalStatus: 'rejected',
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
+  }
+
+  async updateUserRole(id: string, role: string): Promise<User | undefined> {
+    const result = await db.update(users)
+      .set({ 
+        role,
+        updatedAt: new Date()
+      })
+      .where(eq(users.id, id))
+      .returning();
+    return result[0];
   }
 
   // Intake Records
@@ -69,13 +95,13 @@ export class DbStorage implements IStorage {
   }
 
   async createIntakeRecord(record: InsertIntakeRecord): Promise<IntakeRecord> {
-    const result = await db.insert(intakeRecords).values(record).returning();
+    const result = await db.insert(intakeRecords).values(record as any).returning();
     return result[0];
   }
 
   async updateIntakeRecord(id: string, updates: UpdateIntakeRecord): Promise<IntakeRecord | undefined> {
     const result = await db.update(intakeRecords)
-      .set({ ...updates, updatedAt: new Date() })
+      .set({ ...updates, updatedAt: new Date() } as any)
       .where(eq(intakeRecords.id, id))
       .returning();
     return result[0];

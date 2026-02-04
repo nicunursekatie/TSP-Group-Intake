@@ -1,35 +1,62 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { insertUserSchema, insertIntakeRecordSchema, updateIntakeRecordSchema, insertTaskSchema } from "@shared/schema";
+import { insertIntakeRecordSchema, updateIntakeRecordSchema } from "@shared/schema";
 import { addDays, subDays } from "date-fns";
+import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
+import { authStorage } from "./replit_integrations/auth/storage";
 
 // Platform integration config
 const MAIN_PLATFORM_URL = process.env.MAIN_PLATFORM_URL;
 const MAIN_PLATFORM_API_KEY = process.env.MAIN_PLATFORM_API_KEY;
+
+// Helper to get user from request
+function getUserId(req: Request): string | null {
+  const user = req.user as any;
+  return user?.claims?.sub || null;
+}
+
+// Middleware to check if user is approved
+const isApproved = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = getUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  
+  const user = await authStorage.getUser(userId);
+  if (!user || user.approvalStatus !== 'approved') {
+    return res.status(403).json({ error: "Account pending approval" });
+  }
+  
+  next();
+};
+
+// Middleware to check if user is admin
+const isAdmin = async (req: Request, res: Response, next: NextFunction) => {
+  const userId = getUserId(req);
+  if (!userId) {
+    return res.status(401).json({ error: "Unauthorized" });
+  }
+  
+  const user = await authStorage.getUser(userId);
+  if (!user || user.role !== 'admin') {
+    return res.status(403).json({ error: "Admin access required" });
+  }
+  
+  next();
+};
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
   
-  // Auth / Users
-  app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { email } = req.body;
-      const user = await storage.getUserByEmail(email);
-      
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-      
-      res.json(user);
-    } catch (error) {
-      res.status(500).json({ error: "Login failed" });
-    }
-  });
-
-  app.get("/api/users", async (req, res) => {
+  // Setup Replit Auth (MUST be before other routes)
+  await setupAuth(app);
+  registerAuthRoutes(app);
+  
+  // Admin routes for user management
+  app.get("/api/admin/users", isAuthenticated, isAdmin, async (req, res) => {
     try {
       const users = await storage.listUsers();
       res.json(users);
@@ -38,8 +65,38 @@ export async function registerRoutes(
     }
   });
 
-  // Intake Records
-  app.get("/api/intake-records", async (req, res) => {
+  app.patch("/api/admin/users/:id/approve", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const adminId = getUserId(req);
+      const { role } = req.body;
+      const user = await storage.approveUser(req.params.id, adminId!, role || 'volunteer');
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to approve user" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/reject", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const user = await storage.rejectUser(req.params.id);
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to reject user" });
+    }
+  });
+
+  app.patch("/api/admin/users/:id/role", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { role } = req.body;
+      const user = await storage.updateUserRole(req.params.id, role);
+      res.json(user);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update user role" });
+    }
+  });
+
+  // Intake Records (protected - requires authenticated and approved users)
+  app.get("/api/intake-records", isAuthenticated, isApproved, async (req, res) => {
     try {
       const records = await storage.listIntakeRecords();
       res.json(records);
@@ -48,7 +105,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/intake-records/:id", async (req, res) => {
+  app.get("/api/intake-records/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       const record = await storage.getIntakeRecord(req.params.id);
       if (!record) {
@@ -60,7 +117,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/intake-records", async (req, res) => {
+  app.post("/api/intake-records", isAuthenticated, isApproved, async (req, res) => {
     try {
       const validated = insertIntakeRecordSchema.parse(req.body);
       const record = await storage.createIntakeRecord(validated);
@@ -110,7 +167,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/intake-records/:id", async (req, res) => {
+  app.patch("/api/intake-records/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       const validated = updateIntakeRecordSchema.parse(req.body);
       const existing = await storage.getIntakeRecord(req.params.id);
@@ -178,7 +235,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/intake-records/:id", async (req, res) => {
+  app.delete("/api/intake-records/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       await storage.deleteIntakeRecord(req.params.id);
       res.status(204).send();
@@ -187,8 +244,8 @@ export async function registerRoutes(
     }
   });
 
-  // Tasks
-  app.get("/api/intake-records/:id/tasks", async (req, res) => {
+  // Tasks (protected)
+  app.get("/api/intake-records/:id/tasks", isAuthenticated, isApproved, async (req, res) => {
     try {
       const tasks = await storage.getTasksForIntake(req.params.id);
       res.json(tasks);
@@ -197,7 +254,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/tasks/:id", async (req, res) => {
+  app.patch("/api/tasks/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       const task = await storage.updateTask(req.params.id, req.body);
       if (!task) {
@@ -209,8 +266,8 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync - Pull new/in-progress event requests from main platform
-  app.post("/api/sync/pull", async (req, res) => {
+  // Platform Sync - Pull new/in-progress event requests from main platform (admin only)
+  app.post("/api/sync/pull", isAuthenticated, isAdmin, async (req, res) => {
     try {
       if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
         await storage.createSyncLog({
@@ -302,8 +359,8 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync - Push completed intake data back to main platform
-  app.post("/api/sync/push/:id", async (req, res) => {
+  // Platform Sync - Push completed intake data back to main platform (admin only)
+  app.post("/api/sync/push/:id", isAuthenticated, isAdmin, async (req, res) => {
     try {
       if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
         return res.status(400).json({ 
@@ -371,7 +428,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/sync/logs", async (req, res) => {
+  app.get("/api/sync/logs", isAuthenticated, isAdmin, async (req, res) => {
     try {
       const logs = await storage.getRecentSyncLogs(10);
       res.json(logs);
