@@ -21,7 +21,7 @@ export const users = pgTable("users", {
   firstName: varchar("first_name"),
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
-  role: text("role").notNull().default('pending'), // 'pending' | 'volunteer' | 'admin'
+  role: text("role").notNull().default('pending'), // 'pending' | 'intake_team' | 'admin'
   approvalStatus: text("approval_status").notNull().default('pending'), // 'pending' | 'approved' | 'rejected'
   approvedBy: varchar("approved_by"),
   approvedAt: timestamp("approved_at"),

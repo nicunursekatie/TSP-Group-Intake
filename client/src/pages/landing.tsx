@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { ClipboardList, Users, Calendar, ArrowRight } from "lucide-react";
+import { ClipboardList, Users, Calendar } from "lucide-react";
 
 export default function LandingPage() {
   return (
@@ -34,18 +34,9 @@ export default function LandingPage() {
               Event Intake Workflow
             </h1>
             <p className="text-xl text-white/80 max-w-2xl mx-auto mb-8">
-              Streamline your event coordination with our powerful intake management system. 
+              Streamline your event coordination with our powerful intake management system.
               Track requests, manage communications, and ensure every event runs smoothly.
             </p>
-            <a href="/api/login">
-              <Button 
-                size="lg" 
-                className="bg-[#fbad3f] hover:bg-[#a31c41] text-white text-lg px-8 py-6 h-auto"
-                data-testid="button-get-started"
-              >
-                Get Started <ArrowRight className="ml-2 h-5 w-5" />
-              </Button>
-            </a>
           </div>
 
           <div className="grid md:grid-cols-3 gap-8 mt-20">

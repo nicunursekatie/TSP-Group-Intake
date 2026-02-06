@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Check, X, Users, Shield, UserCheck, UserPlus, Link2, Loader2, ExternalLink } from "lucide-react";
+import { Check, X, Users, Shield, UserCheck, UserPlus, Link2, Loader2, ExternalLink, Pencil } from "lucide-react";
 import { toast } from "sonner";
 import type { User } from "@shared/models/auth";
 
@@ -16,7 +16,9 @@ export default function AdminPage() {
   const [newEmail, setNewEmail] = useState("");
   const [newFirstName, setNewFirstName] = useState("");
   const [newLastName, setNewLastName] = useState("");
-  const [newRole, setNewRole] = useState("volunteer");
+  const [newRole, setNewRole] = useState("intake_team");
+  const [editingPlatformId, setEditingPlatformId] = useState<string | null>(null);
+  const [manualPlatformId, setManualPlatformId] = useState("");
 
   const { data: users = [], isLoading } = useQuery<User[]>({
     queryKey: ["/api/admin/users"],
@@ -109,7 +111,7 @@ export default function AdminPage() {
       setNewEmail("");
       setNewFirstName("");
       setNewLastName("");
-      setNewRole("volunteer");
+      setNewRole("intake_team");
     },
     onError: (error: Error) => {
       toast.error(error.message);
@@ -154,6 +156,49 @@ export default function AdminPage() {
     },
   });
 
+  const setManualPlatformMutation = useMutation({
+    mutationFn: async ({ userId, platformUserId }: { userId: string; platformUserId: string }) => {
+      const res = await fetch(`/api/admin/users/${userId}/platform-id`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify({ platformUserId }),
+      });
+      if (!res.ok) throw new Error("Failed to set platform ID");
+      return res.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast.success("Platform ID saved");
+      setEditingPlatformId(null);
+      setManualPlatformId("");
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
+  const bulkLinkMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/admin/users/bulk-link-platform", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const err = await res.json();
+        throw new Error(err.error || "Bulk link failed");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/admin/users"] });
+      toast.success(`Linked ${data.linked} of ${data.total} users`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const pendingUsers = users.filter(u => u.approvalStatus === 'pending');
   const approvedUsers = users.filter(u => u.approvalStatus === 'approved');
   const rejectedUsers = users.filter(u => u.approvalStatus === 'rejected');
@@ -173,8 +218,8 @@ export default function AdminPage() {
     switch (role) {
       case 'admin':
         return <Badge className="bg-purple-100 text-purple-800">Admin</Badge>;
-      case 'volunteer':
-        return <Badge className="bg-blue-100 text-blue-800">Volunteer</Badge>;
+      case 'intake_team':
+        return <Badge className="bg-blue-100 text-blue-800">Intake Team</Badge>;
       default:
         return <Badge className="bg-gray-100 text-gray-800">Pending</Badge>;
     }
@@ -279,7 +324,7 @@ export default function AdminPage() {
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="volunteer">Volunteer</SelectItem>
+                      <SelectItem value="intake_team">Intake Team</SelectItem>
                       <SelectItem value="admin">Admin</SelectItem>
                     </SelectContent>
                   </Select>
@@ -363,21 +408,21 @@ export default function AdminPage() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Select 
-                      defaultValue="volunteer"
+                      defaultValue="intake_team"
                       onValueChange={(role) => approveMutation.mutate({ userId: user.id, role })}
                     >
                       <SelectTrigger className="w-32" data-testid={`select-role-${user.id}`}>
                         <SelectValue placeholder="Role" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="volunteer">Volunteer</SelectItem>
+                        <SelectItem value="intake_team">Intake Team</SelectItem>
                         <SelectItem value="admin">Admin</SelectItem>
                       </SelectContent>
                     </Select>
                     <Button
                       size="sm"
                       className="bg-green-600 hover:bg-green-700"
-                      onClick={() => approveMutation.mutate({ userId: user.id, role: 'volunteer' })}
+                      onClick={() => approveMutation.mutate({ userId: user.id, role: 'intake_team' })}
                       data-testid={`button-approve-${user.id}`}
                     >
                       <Check className="h-4 w-4" />
@@ -400,8 +445,27 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">All Users</CardTitle>
-          <CardDescription>Manage user roles and permissions</CardDescription>
+          <div className="flex items-center justify-between">
+            <div>
+              <CardTitle className="text-lg">All Users</CardTitle>
+              <CardDescription>Manage user roles and platform links</CardDescription>
+            </div>
+            {approvedUsers.some(u => !u.platformUserId) && (
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => bulkLinkMutation.mutate()}
+                disabled={bulkLinkMutation.isPending}
+              >
+                {bulkLinkMutation.isPending ? (
+                  <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                ) : (
+                  <Link2 className="h-4 w-4 mr-2" />
+                )}
+                Auto-Link All
+              </Button>
+            )}
+          </div>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
@@ -440,7 +504,7 @@ export default function AdminPage() {
                           <SelectValue />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="volunteer">Volunteer</SelectItem>
+                          <SelectItem value="intake_team">Intake Team</SelectItem>
                           <SelectItem value="admin">Admin</SelectItem>
                         </SelectContent>
                       </Select>
@@ -450,11 +514,46 @@ export default function AdminPage() {
                 </div>
                 {/* Platform link status */}
                 {user.approvalStatus === 'approved' && (
-                  <div className="flex items-center gap-2 ml-13 pl-[52px]">
-                    {user.platformUserId ? (
+                  <div className="flex items-center gap-2 pl-[52px] flex-wrap">
+                    {editingPlatformId === user.id ? (
+                      <div className="flex items-center gap-2">
+                        <Input
+                          className="h-7 w-48 text-xs font-mono"
+                          placeholder="Platform user ID"
+                          value={manualPlatformId}
+                          onChange={(e) => setManualPlatformId(e.target.value)}
+                        />
+                        <Button
+                          variant="default"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => setManualPlatformMutation.mutate({ userId: user.id, platformUserId: manualPlatformId })}
+                          disabled={!manualPlatformId.trim() || setManualPlatformMutation.isPending}
+                        >
+                          {setManualPlatformMutation.isPending ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Save'}
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-xs"
+                          onClick={() => { setEditingPlatformId(null); setManualPlatformId(""); }}
+                        >
+                          Cancel
+                        </Button>
+                      </div>
+                    ) : user.platformUserId ? (
                       <>
                         <ExternalLink className="h-3 w-3 text-green-600" />
                         <span className="text-xs text-green-700 font-mono">{user.platformUserId}</span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-gray-500"
+                          onClick={() => { setEditingPlatformId(user.id); setManualPlatformId(user.platformUserId || ""); }}
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Edit
+                        </Button>
                         <Button
                           variant="ghost"
                           size="sm"
@@ -480,6 +579,15 @@ export default function AdminPage() {
                             <Link2 className="h-3 w-3 mr-1" />
                           )}
                           Auto-Link
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-xs text-gray-500"
+                          onClick={() => { setEditingPlatformId(user.id); setManualPlatformId(""); }}
+                        >
+                          <Pencil className="h-3 w-3 mr-1" />
+                          Set Manually
                         </Button>
                       </>
                     )}

@@ -89,7 +89,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-            <p className="text-xs text-muted-foreground truncate capitalize">{user?.role}</p>
+            <p className="text-xs text-muted-foreground truncate">{user?.role === 'intake_team' ? 'Intake Team' : user?.role === 'admin' ? 'Admin' : user?.role}</p>
           </div>
         </div>
         <a href="/api/logout">

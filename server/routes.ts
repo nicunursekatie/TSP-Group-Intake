@@ -84,7 +84,7 @@ export async function registerRoutes(
     try {
       const adminId = getUserId(req);
       const { role } = req.body;
-      const user = await storage.approveUser(req.params.id, adminId!, role || 'volunteer');
+      const user = await storage.approveUser(req.params.id, adminId!, role || 'intake_team');
       res.json(user);
     } catch (error) {
       res.status(500).json({ error: "Failed to approve user" });
@@ -129,7 +129,7 @@ export async function registerRoutes(
         email,
         firstName: firstName || null,
         lastName: lastName || null,
-        role: role || 'volunteer',
+        role: role || 'intake_team',
         approvalStatus: 'approved',
         approvedBy: adminId!,
       });
@@ -208,6 +208,55 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error('Admin platform link error:', error);
       res.status(500).json({ error: "Failed to link platform account" });
+    }
+  });
+
+  // Admin: Bulk auto-link all unlinked approved users to the platform
+  app.post("/api/admin/users/bulk-link-platform", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
+        return res.status(400).json({ error: "Platform sync not configured." });
+      }
+
+      const allUsers = await storage.listUsers();
+      const unlinked = allUsers.filter(u => u.approvalStatus === 'approved' && !u.platformUserId && u.email);
+
+      let linked = 0;
+      let failed = 0;
+      const results: { email: string; status: string; platformUserId?: string }[] = [];
+
+      for (const user of unlinked) {
+        try {
+          const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email!)}`;
+          const response = await platformFetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const platformUserId = data.data?.userId || data.userId;
+            if (platformUserId) {
+              await storage.updateUserSettings(user.id, { platformUserId });
+              linked++;
+              results.push({ email: user.email!, status: 'linked', platformUserId });
+              continue;
+            }
+          }
+          failed++;
+          results.push({ email: user.email!, status: 'not_found' });
+        } catch (err: any) {
+          failed++;
+          results.push({ email: user.email!, status: 'error' });
+        }
+      }
+
+      res.json({ success: true, linked, failed, total: unlinked.length, results });
+    } catch (error: any) {
+      console.error('Bulk link error:', error);
+      res.status(500).json({ error: "Bulk link failed" });
     }
   });
 
