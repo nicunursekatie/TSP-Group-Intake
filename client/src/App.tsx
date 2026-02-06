@@ -38,7 +38,7 @@ function ProtectedRoute({ component: Component, requireAdmin = false }: { compon
     return <PendingApproval />;
   }
 
-  if (requireAdmin && user.role !== 'admin') {
+  if (requireAdmin && user.role !== 'admin' && user.role !== 'admin_coordinator') {
     setLocation("/");
     return null;
   }

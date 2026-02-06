@@ -59,12 +59,22 @@ const isApproved = async (req: Request, res: Response, next: NextFunction) => {
   if (!userId) {
     return res.status(401).json({ error: "Unauthorized" });
   }
-  
+
   const user = await authStorage.getUser(userId);
-  if (!user || user.approvalStatus !== 'approved') {
+  if (!user) {
     return res.status(403).json({ error: "Account pending approval" });
   }
-  
+
+  // Platform admins/coordinators are auto-approved on the intake app
+  if (user.approvalStatus !== 'approved' && (user.role === 'admin' || user.role === 'admin_coordinator')) {
+    await storage.approveUser(user.id, 'system', user.role);
+    return next();
+  }
+
+  if (user.approvalStatus !== 'approved') {
+    return res.status(403).json({ error: "Account pending approval" });
+  }
+
   next();
 };
 
@@ -76,10 +86,10 @@ const isAdmin = async (req: Request, res: Response, next: NextFunction) => {
   }
   
   const user = await authStorage.getUser(userId);
-  if (!user || user.role !== 'admin') {
+  if (!user || (user.role !== 'admin' && user.role !== 'admin_coordinator')) {
     return res.status(403).json({ error: "Admin access required" });
   }
-  
+
   next();
 };
 
@@ -885,7 +895,7 @@ export async function registerRoutes(
       // Verify the caller owns this record or is an admin
       const userId = getUserId(req);
       const currentUser = await authStorage.getUser(userId!);
-      if (record.ownerId !== userId && currentUser?.role !== 'admin') {
+      if (record.ownerId !== userId && currentUser?.role !== 'admin' && currentUser?.role !== 'admin_coordinator') {
         return res.status(403).json({ error: "You can only sync records assigned to you" });
       }
 

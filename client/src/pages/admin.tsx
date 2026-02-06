@@ -217,9 +217,12 @@ export default function AdminPage() {
   const getRoleBadge = (role: string) => {
     switch (role) {
       case 'admin':
+      case 'admin_coordinator':
         return <Badge className="bg-purple-100 text-purple-800">Admin</Badge>;
       case 'intake_team':
         return <Badge className="bg-blue-100 text-blue-800">Intake Team</Badge>;
+      case 'volunteer':
+        return <Badge className="bg-green-100 text-green-800">Volunteer</Badge>;
       default:
         return <Badge className="bg-gray-100 text-gray-800">Pending</Badge>;
     }
