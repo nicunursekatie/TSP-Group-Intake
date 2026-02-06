@@ -10,16 +10,38 @@ import { authStorage } from "./replit_integrations/auth/storage";
 const MAIN_PLATFORM_URL = process.env.MAIN_PLATFORM_URL;
 const MAIN_PLATFORM_API_KEY = process.env.MAIN_PLATFORM_API_KEY;
 
-// Fetch with retry for Replit-to-Replit calls (first call wakes a sleeping app, second succeeds)
-async function platformFetch(url: string, options: RequestInit, retries = 2): Promise<globalThis.Response> {
+// Wake up a sleeping Replit app by hitting its root URL first
+async function wakePlatform(): Promise<void> {
+  if (!MAIN_PLATFORM_URL) return;
+  try {
+    console.log(`Waking platform at ${MAIN_PLATFORM_URL}...`);
+    await fetch(MAIN_PLATFORM_URL, { method: 'GET', signal: AbortSignal.timeout(10000) });
+    console.log('Platform wake ping succeeded');
+  } catch (err: any) {
+    console.log(`Platform wake ping failed (${err.code || err.message}), continuing anyway...`);
+  }
+}
+
+// Fetch with retry for Replit-to-Replit calls (handles sleeping apps)
+async function platformFetch(url: string, options: RequestInit, retries = 4): Promise<globalThis.Response> {
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      return await fetch(url, options);
+      // On first attempt, send a wake-up ping and wait for platform to boot
+      if (attempt === 1) {
+        await wakePlatform();
+        await new Promise(r => setTimeout(r, 2000)); // Give it 2s to fully wake
+      }
+      console.log(`Platform fetch attempt ${attempt}/${retries}: ${url}`);
+      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
+      console.log(`Platform fetch attempt ${attempt} succeeded: ${response.status}`);
+      return response;
     } catch (err: any) {
       const isLastAttempt = attempt === retries;
+      console.error(`Platform fetch attempt ${attempt}/${retries} failed:`, err.code || err.message);
       if (isLastAttempt) throw err;
-      console.log(`Platform fetch attempt ${attempt} failed (${err.code || err.message}), retrying in 2s...`);
-      await new Promise(r => setTimeout(r, 2000));
+      const delay = attempt * 3000; // 3s, 6s, 9s
+      console.log(`Retrying in ${delay/1000}s...`);
+      await new Promise(r => setTimeout(r, delay));
     }
   }
   throw new Error('platformFetch: unreachable');
@@ -342,7 +364,11 @@ export async function registerRoutes(
       res.json({ success: true, platformUserId });
     } catch (error: any) {
       console.error('Platform user lookup error:', error);
-      res.status(500).json({ error: "Failed to look up platform user ID." });
+      const isConnectionError = error.code === 'ECONNRESET' || error.message === 'fetch failed' || error.name === 'TimeoutError';
+      const userMessage = isConnectionError
+        ? "Could not reach the main platform (it may be starting up). Please try again in a few seconds."
+        : "Failed to look up platform user ID.";
+      res.status(500).json({ error: userMessage });
     }
   });
 
@@ -704,6 +730,8 @@ export async function registerRoutes(
         });
       }
 
+      console.log(`Sync pull: User ${currentUser.email} has platformUserId: "${currentUser.platformUserId}"`);
+
       // Pull all active statuses so both apps stay in sync during transition
       const queryParams = new URLSearchParams({
         tspContact: currentUser.platformUserId,
@@ -822,13 +850,17 @@ export async function registerRoutes(
       });
     } catch (error: any) {
       console.error('Sync pull error:', error);
+      const isConnectionError = error.code === 'ECONNRESET' || error.message === 'fetch failed' || error.name === 'TimeoutError';
+      const userMessage = isConnectionError
+        ? "Could not reach the main platform (it may be starting up). Please try again in a few seconds."
+        : (error.message || "Sync failed");
       await storage.createSyncLog({
         direction: 'pull',
         recordCount: 0,
         status: 'error',
         error: error.message || 'Unknown error',
       });
-      res.status(500).json({ error: error.message || "Sync failed" });
+      res.status(500).json({ error: userMessage });
     }
   });
 
