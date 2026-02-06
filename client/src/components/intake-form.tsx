@@ -39,20 +39,36 @@ import { useQueryClient } from "@tanstack/react-query";
 
 const intakeSchema = z.object({
   organizationName: z.string().min(1, "Required"),
+  organizationCategory: z.string().optional(),
+  department: z.string().optional(),
   contactName: z.string().min(1, "Required"),
   contactEmail: z.string().email().optional().or(z.literal("")),
   contactPhone: z.string().optional(),
+  backupContactFirstName: z.string().optional(),
+  backupContactLastName: z.string().optional(),
+  backupContactEmail: z.string().optional(),
+  backupContactPhone: z.string().optional(),
+  backupContactRole: z.string().optional(),
   eventDate: z.string().optional(),
+  eventStartTime: z.string().optional(),
+  eventEndTime: z.string().optional(),
   eventTime: z.string().optional(),
   location: z.string().optional(),
+  eventAddress: z.string().optional(),
   attendeeCount: z.coerce.number().min(0),
   sandwichCount: z.coerce.number().min(0),
+  actualSandwichCount: z.coerce.number().optional(),
+  message: z.string().optional(),
   dietaryRestrictions: z.string().optional(),
   requiresRefrigeration: z.boolean(),
   hasIndoorSpace: z.boolean(),
   hasRefrigeration: z.boolean(),
+  pickupTimeWindow: z.string().optional(),
   deliveryInstructions: z.string().optional(),
   status: z.string(),
+  planningNotes: z.string().optional(),
+  schedulingNotes: z.string().optional(),
+  nextAction: z.string().optional(),
   internalNotes: z.string().optional(),
 });
 
@@ -89,20 +105,36 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     resolver: zodResolver(intakeSchema),
     defaultValues: {
       organizationName: intake.organizationName,
+      organizationCategory: intake.organizationCategory || "",
+      department: intake.department || "",
       contactName: intake.contactName,
       contactEmail: intake.contactEmail || "",
       contactPhone: intake.contactPhone || "",
+      backupContactFirstName: intake.backupContactFirstName || "",
+      backupContactLastName: intake.backupContactLastName || "",
+      backupContactEmail: intake.backupContactEmail || "",
+      backupContactPhone: intake.backupContactPhone || "",
+      backupContactRole: intake.backupContactRole || "",
       eventDate: intake.eventDate ? format(new Date(intake.eventDate), "yyyy-MM-dd") : "",
+      eventStartTime: intake.eventStartTime || "",
+      eventEndTime: intake.eventEndTime || "",
       eventTime: intake.eventTime || "",
       location: intake.location || "",
+      eventAddress: intake.eventAddress || "",
       attendeeCount: intake.attendeeCount,
       sandwichCount: intake.sandwichCount,
+      actualSandwichCount: intake.actualSandwichCount ?? undefined,
+      message: intake.message || "",
       dietaryRestrictions: intake.dietaryRestrictions || "",
       requiresRefrigeration: intake.requiresRefrigeration,
       hasIndoorSpace: intake.hasIndoorSpace,
       hasRefrigeration: intake.hasRefrigeration,
+      pickupTimeWindow: intake.pickupTimeWindow || "",
       deliveryInstructions: intake.deliveryInstructions || "",
       status: intake.status,
+      planningNotes: intake.planningNotes || "",
+      schedulingNotes: intake.schedulingNotes || "",
+      nextAction: intake.nextAction || "",
       internalNotes: intake.internalNotes || "",
     },
   });
@@ -227,11 +259,11 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
             <AccordionItem value="contact" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
                 <span className="font-semibold text-lg flex items-center gap-2">
-                  1. Contact Information
+                  1. Contact & Organization
                   {!form.getValues("organizationName") && <Badge variant="outline" className="ml-2 text-xs">Pending</Badge>}
                 </span>
               </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-6 space-y-4">
+              <AccordionContent className="pt-2 pb-6 space-y-6">
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -248,6 +280,29 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                   />
                   <FormField
                     control={form.control}
+                    name="organizationCategory"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Category</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger className="h-11">
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="corp">Corporate</SelectItem>
+                            <SelectItem value="nonprofit">Nonprofit</SelectItem>
+                            <SelectItem value="school">School</SelectItem>
+                            <SelectItem value="church_faith">Church / Faith</SelectItem>
+                            <SelectItem value="other">Other</SelectItem>
+                          </SelectContent>
+                        </Select>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
                     name="contactName"
                     render={({ field }) => (
                       <FormItem>
@@ -256,6 +311,18 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                           <Input placeholder="Full Name" {...field} className="h-11" />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="department"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Department</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. Events, HR" {...field} />
+                        </FormControl>
                       </FormItem>
                     )}
                   />
@@ -286,6 +353,87 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                     )}
                   />
                 </div>
+
+                {/* Backup Contact */}
+                <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
+                  <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Backup Contact</h4>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="backupContactFirstName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>First Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="First name" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="backupContactLastName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Last Name</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Last name" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="backupContactEmail"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Email</FormLabel>
+                          <FormControl>
+                            <Input placeholder="backup@example.com" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="backupContactPhone"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Phone</FormLabel>
+                          <FormControl>
+                            <Input placeholder="(555) 123-4567" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="backupContactRole"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Role / Title</FormLabel>
+                          <FormControl>
+                            <Input placeholder="e.g. Events Coordinator" {...field} />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                </div>
+
+                {/* Message from requester */}
+                <FormField
+                  control={form.control}
+                  name="message"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Message / Additional Info</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="Any other info about the group or request..." {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               </AccordionContent>
             </AccordionItem>
 
@@ -295,7 +443,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                  <span className="font-semibold text-lg">2. Event Details</span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
                     name="eventDate"
@@ -311,27 +459,50 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                   />
                   <FormField
                     control={form.control}
-                    name="eventTime"
+                    name="eventStartTime"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Event Time</FormLabel>
+                        <FormLabel>Start Time</FormLabel>
                         <FormControl>
-                          <Input type="time" {...field} className="h-11" />
+                          <Input placeholder="e.g. 11:00 AM" {...field} className="h-11" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="eventEndTime"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>End Time</FormLabel>
+                        <FormControl>
+                          <Input placeholder="e.g. 2:00 PM" {...field} className="h-11" />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="location"
+                    render={({ field }) => (
+                      <FormItem className="md:col-span-2">
+                        <FormLabel>Location / Address</FormLabel>
+                        <FormControl>
+                          <Input placeholder="123 Main St, City, State" {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
-                   <FormField
+                  <FormField
                     control={form.control}
-                    name="location"
+                    name="pickupTimeWindow"
                     render={({ field }) => (
-                      <FormItem className="md:col-span-2">
-                        <FormLabel>Location Address</FormLabel>
+                      <FormItem>
+                        <FormLabel>Pickup Window</FormLabel>
                         <FormControl>
-                          <Input placeholder="123 Main St, City, State" {...field} />
+                          <Input placeholder="e.g. 2:00 - 3:00 PM" {...field} />
                         </FormControl>
-                        <FormMessage />
                       </FormItem>
                     )}
                   />
@@ -502,22 +673,61 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
               </AccordionContent>
             </AccordionItem>
 
-            {/* Internal Notes */}
-            <AccordionItem value="internal" className="border rounded-lg bg-card px-4 shadow-sm">
+            {/* Planning & Notes */}
+            <AccordionItem value="planning" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
-                 <span className="font-semibold text-lg">Internal Notes</span>
+                <span className="font-semibold text-lg">4. Planning & Notes</span>
               </AccordionTrigger>
-              <AccordionContent className="pt-2 pb-6">
+              <AccordionContent className="pt-2 pb-6 space-y-4">
+                <FormField
+                  control={form.control}
+                  name="nextAction"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Next Action</FormLabel>
+                      <FormControl>
+                        <Input placeholder="What needs to happen next?" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="planningNotes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Planning Notes</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="General planning notes..." className="min-h-[100px]" {...field} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="schedulingNotes"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Scheduling Notes</FormLabel>
+                        <FormControl>
+                          <Textarea placeholder="Scheduling-specific notes..." className="min-h-[100px]" {...field} />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+                </div>
                 <FormField
                   control={form.control}
                   name="internalNotes"
                   render={({ field }) => (
                     <FormItem>
+                      <FormLabel>Internal Notes</FormLabel>
                       <FormControl>
-                        <Textarea 
-                          placeholder="Private team notes..." 
+                        <Textarea
+                          placeholder="Private team notes..."
                           className="min-h-[150px]"
-                          {...field} 
+                          {...field}
                         />
                       </FormControl>
                     </FormItem>

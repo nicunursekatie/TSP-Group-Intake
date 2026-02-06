@@ -12,39 +12,74 @@ export const intakeRecords = pgTable("intake_records", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
   updatedAt: timestamp("updated_at").notNull().defaultNow(),
   lastEditedBy: varchar("last_edited_by").references(() => users.id),
-  
+
   // External sync
   externalEventId: text("external_event_id"),
-  
-  // Basic Info
-  organizationName: text("organization_name").notNull(),
+
+  // Contact Info
   contactName: text("contact_name").notNull(),
+  contactFirstName: text("contact_first_name"),
+  contactLastName: text("contact_last_name"),
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
-  
+
+  // Backup Contact
+  backupContactFirstName: text("backup_contact_first_name"),
+  backupContactLastName: text("backup_contact_last_name"),
+  backupContactEmail: text("backup_contact_email"),
+  backupContactPhone: text("backup_contact_phone"),
+  backupContactRole: text("backup_contact_role"),
+
+  // Organization
+  organizationName: text("organization_name").notNull(),
+  organizationCategory: text("organization_category"),
+  department: text("department"),
+
   // Event Details
   eventDate: timestamp("event_date"),
+  desiredEventDate: timestamp("desired_event_date"),
+  scheduledEventDate: timestamp("scheduled_event_date"),
+  dateFlexible: boolean("date_flexible"),
   eventTime: text("event_time"),
+  eventStartTime: text("event_start_time"),
+  eventEndTime: text("event_end_time"),
   location: text("location"),
+  eventAddress: text("event_address"),
+  latitude: text("latitude"),
+  longitude: text("longitude"),
   attendeeCount: integer("attendee_count").notNull().default(0),
-  
+  volunteerCount: integer("volunteer_count"),
+  message: text("message"),
+
   // Sandwich Details
   sandwichCount: integer("sandwich_count").notNull().default(0),
+  actualSandwichCount: integer("actual_sandwich_count"),
   dietaryRestrictions: text("dietary_restrictions"),
   requiresRefrigeration: boolean("requires_refrigeration").notNull().default(false),
-  
+
   // Logistics
   hasIndoorSpace: boolean("has_indoor_space").notNull().default(true),
   hasRefrigeration: boolean("has_refrigeration").notNull().default(false),
+  pickupTimeWindow: text("pickup_time_window"),
   deliveryInstructions: text("delivery_instructions"),
-  
+
   // Status & Assignment
   status: text("status").notNull().default('New'),
   ownerId: varchar("owner_id").references(() => users.id),
-  
+  tspContactAssigned: text("tsp_contact_assigned"),
+  tspContact: text("tsp_contact"),
+  customTspContact: text("custom_tsp_contact"),
+
+  // Notes & Tracking
+  planningNotes: text("planning_notes"),
+  schedulingNotes: text("scheduling_notes"),
+  nextAction: text("next_action"),
+  contactAttempts: integer("contact_attempts"),
+  contactAttemptsLog: jsonb("contact_attempts_log").$type<any[]>(),
+
   // Flags
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
-  
+
   // Notes
   internalNotes: text("internal_notes"),
 });
@@ -71,6 +106,14 @@ export const platformSyncLog = pgTable("platform_sync_log", {
 // Insert Schemas
 export const insertIntakeRecordSchema = createInsertSchema(intakeRecords, {
   eventDate: z.union([z.string(), z.date()]).optional().nullable().transform(val => {
+    if (!val) return null;
+    return typeof val === 'string' ? new Date(val) : val;
+  }),
+  desiredEventDate: z.union([z.string(), z.date()]).optional().nullable().transform(val => {
+    if (!val) return null;
+    return typeof val === 'string' ? new Date(val) : val;
+  }),
+  scheduledEventDate: z.union([z.string(), z.date()]).optional().nullable().transform(val => {
     if (!val) return null;
     return typeof val === 'string' ? new Date(val) : val;
   }),

@@ -1,51 +1,13 @@
 import type { Express, Request, Response, NextFunction } from "express";
 import type { Server } from "http";
 import { storage } from "./storage";
-import { insertIntakeRecordSchema, updateIntakeRecordSchema } from "@shared/schema";
+import { insertIntakeRecordSchema, updateIntakeRecordSchema, users } from "@shared/schema";
 import { addDays, subDays } from "date-fns";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { authStorage } from "./replit_integrations/auth/storage";
-
-// Platform integration config
-const MAIN_PLATFORM_URL = process.env.MAIN_PLATFORM_URL;
-const MAIN_PLATFORM_API_KEY = process.env.MAIN_PLATFORM_API_KEY;
-
-// Wake up a sleeping Replit app by hitting its root URL first
-async function wakePlatform(): Promise<void> {
-  if (!MAIN_PLATFORM_URL) return;
-  try {
-    console.log(`Waking platform at ${MAIN_PLATFORM_URL}...`);
-    await fetch(MAIN_PLATFORM_URL, { method: 'GET', signal: AbortSignal.timeout(10000) });
-    console.log('Platform wake ping succeeded');
-  } catch (err: any) {
-    console.log(`Platform wake ping failed (${err.code || err.message}), continuing anyway...`);
-  }
-}
-
-// Fetch with retry for Replit-to-Replit calls (handles sleeping apps)
-async function platformFetch(url: string, options: RequestInit, retries = 4): Promise<globalThis.Response> {
-  for (let attempt = 1; attempt <= retries; attempt++) {
-    try {
-      // On first attempt, send a wake-up ping and wait for platform to boot
-      if (attempt === 1) {
-        await wakePlatform();
-        await new Promise(r => setTimeout(r, 2000)); // Give it 2s to fully wake
-      }
-      console.log(`Platform fetch attempt ${attempt}/${retries}: ${url}`);
-      const response = await fetch(url, { ...options, signal: AbortSignal.timeout(15000) });
-      console.log(`Platform fetch attempt ${attempt} succeeded: ${response.status}`);
-      return response;
-    } catch (err: any) {
-      const isLastAttempt = attempt === retries;
-      console.error(`Platform fetch attempt ${attempt}/${retries} failed:`, err.code || err.message);
-      if (isLastAttempt) throw err;
-      const delay = attempt * 3000; // 3s, 6s, 9s
-      console.log(`Retrying in ${delay/1000}s...`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-  throw new Error('platformFetch: unreachable');
-}
+import { eventRequests } from "@shared/platformTables";
+import { db } from "./db";
+import { eq, and, or, inArray, isNotNull } from "drizzle-orm";
 
 // Helper to get user from request
 function getUserId(req: Request): string | null {
@@ -166,28 +128,21 @@ export async function registerRoutes(
         approvedBy: adminId!,
       });
 
-      // Auto-lookup platform ID by email
-      if (MAIN_PLATFORM_URL && MAIN_PLATFORM_API_KEY) {
-        try {
-          const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(email)}`;
-          const response = await platformFetch(apiUrl, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          if (response.ok) {
-            const data = await response.json();
-            const platformUserId = data.data?.userId || data.userId;
-            if (platformUserId) {
-              await storage.updateUserSettings(user.id, { platformUserId });
-              return res.status(201).json({ ...user, platformUserId, platformLinked: true });
-            }
-          }
-        } catch (err: any) {
-          console.error('Auto platform lookup failed for new user:', err.message);
+      // Auto-lookup platform ID by email (direct DB query on shared users table)
+      try {
+        const [platformUser] = await db.select({ id: users.id })
+          .from(users)
+          .where(and(
+            eq(users.email, email),
+            isNotNull(users.password) // Platform users have passwords; Replit OIDC users don't
+          ))
+          .limit(1);
+        if (platformUser) {
+          await storage.updateUserSettings(user.id, { platformUserId: platformUser.id });
+          return res.status(201).json({ ...user, platformUserId: platformUser.id, platformLinked: true });
         }
+      } catch (err: any) {
+        console.error('Auto platform lookup failed for new user:', err.message);
       }
 
       res.status(201).json({ ...user, platformLinked: false });
@@ -799,43 +754,89 @@ export async function registerRoutes(
         const externalId = (event.id || event.eventRequestId)?.toString();
         const existing = externalId ? existingByExternalId.get(externalId) : null;
 
-        // Platform uses camelCase: organizationName, firstName, lastName,
-        // scheduledEventDate, estimatedSandwichCount, etc.
-        const contactName = [event.firstName, event.lastName].filter(Boolean).join(' ') || event.contactName || 'Unknown Contact';
-        const eventDateRaw = event.scheduledEventDate || event.eventDate || event.preferredDate;
+        // Platform API returns camelCase field names matching event_requests table
+        const contactName = [event.firstName, event.lastName].filter(Boolean).join(' ') || 'Unknown Contact';
+        const scheduledDate = event.scheduledEventDate ? new Date(event.scheduledEventDate) : null;
+        const desiredDate = event.desiredEventDate ? new Date(event.desiredEventDate) : null;
         const platformStatus = event.status?.toLowerCase() || 'new';
         const localStatus = platformStatusToLocal[platformStatus] || 'New';
 
+        // Build the full record data from platform fields
+        const recordData = {
+          externalEventId: externalId,
+          // Contact
+          contactName,
+          contactFirstName: event.firstName || null,
+          contactLastName: event.lastName || null,
+          contactEmail: event.email || '',
+          contactPhone: event.phone || '',
+          // Backup contact
+          backupContactFirstName: event.backupContactFirstName || null,
+          backupContactLastName: event.backupContactLastName || null,
+          backupContactEmail: event.backupContactEmail || null,
+          backupContactPhone: event.backupContactPhone || null,
+          backupContactRole: event.backupContactRole || null,
+          // Organization
+          organizationName: event.organizationName || 'Unknown Org',
+          organizationCategory: event.organizationCategory || null,
+          department: event.department || null,
+          // Event dates & times
+          eventDate: scheduledDate || desiredDate,
+          desiredEventDate: desiredDate,
+          scheduledEventDate: scheduledDate,
+          dateFlexible: event.dateFlexible ?? null,
+          eventTime: event.eventStartTime || '',
+          eventStartTime: event.eventStartTime || null,
+          eventEndTime: event.eventEndTime || null,
+          // Location
+          location: event.eventAddress || '',
+          eventAddress: event.eventAddress || null,
+          latitude: event.latitude || null,
+          longitude: event.longitude || null,
+          // Counts
+          attendeeCount: event.volunteerCount || 0,
+          volunteerCount: event.volunteerCount || null,
+          sandwichCount: event.estimatedSandwichCount || 0,
+          actualSandwichCount: event.actualSandwichCount || null,
+          message: event.message || null,
+          // Logistics
+          hasRefrigeration: event.hasRefrigeration || false,
+          pickupTimeWindow: event.pickupTimeWindow || null,
+          // Assignment
+          tspContactAssigned: event.tspContactAssigned || null,
+          tspContact: event.tspContact || null,
+          customTspContact: event.customTspContact || null,
+          // Notes & tracking
+          planningNotes: event.planningNotes || null,
+          schedulingNotes: event.schedulingNotes || null,
+          nextAction: event.nextAction || null,
+          contactAttempts: event.contactAttempts || null,
+          contactAttemptsLog: event.contactAttemptsLog || null,
+          // Status
+          status: localStatus,
+        };
+
         if (existing) {
-          // Update status from platform if it has advanced beyond the local status
-          // (don't overwrite local progress with an older platform status)
+          // Update fields from platform (keeps local-only fields like flags, internalNotes)
           const statusRank: Record<string, number> = { 'New': 0, 'In Process': 1, 'Scheduled': 2, 'Completed': 3 };
           const platformRank = statusRank[localStatus] ?? 0;
           const localRank = statusRank[existing.status] ?? 0;
 
-          if (platformRank > localRank) {
-            await storage.updateIntakeRecord(existing.id, { status: localStatus });
-            updatedCount++;
+          // Build update with all synced fields except status (only advance status)
+          const updates: any = { ...recordData };
+          delete updates.externalEventId; // don't change the link
+          if (platformRank <= localRank) {
+            delete updates.status; // don't regress status
           }
+
+          await storage.updateIntakeRecord(existing.id, updates);
+          updatedCount++;
         } else {
           // New record — import it
           await storage.createIntakeRecord({
-            externalEventId: externalId,
-            organizationName: event.organizationName || 'Unknown Org',
-            contactName,
-            contactEmail: event.contactEmail || event.email || '',
-            contactPhone: event.contactPhone || event.phone || '',
-            eventDate: eventDateRaw ? new Date(eventDateRaw) : null,
-            eventTime: event.eventTime || event.preferredTime || '',
-            location: event.location || event.address || event.eventLocation || '',
-            attendeeCount: event.estimatedAttendees || event.attendeeCount || 0,
-            sandwichCount: event.estimatedSandwichCount || event.sandwichCount || 0,
-            dietaryRestrictions: event.dietaryRestrictions || event.dietaryNotes || '',
-            requiresRefrigeration: event.requiresRefrigeration || false,
-            hasIndoorSpace: event.hasIndoorSpace ?? true,
-            hasRefrigeration: event.hasRefrigeration || false,
-            deliveryInstructions: event.deliveryInstructions || event.specialInstructions || '',
-            status: localStatus,
+            ...recordData,
+            requiresRefrigeration: false,
+            hasIndoorSpace: true,
             ownerId: userId,
             flags: [],
             internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
@@ -910,22 +911,36 @@ export async function registerRoutes(
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          status: 'scheduled',
+          // Use platform's camelCase field names
+          status: record.status === 'Scheduled' ? 'scheduled' : record.status === 'Completed' ? 'completed' : 'in_process',
           organizationName: record.organizationName,
-          contactName: record.contactName,
-          contactEmail: record.contactEmail,
-          contactPhone: record.contactPhone,
-          scheduledEventDate: record.eventDate,
-          eventTime: record.eventTime,
-          location: record.location,
-          estimatedAttendees: record.attendeeCount,
+          organizationCategory: record.organizationCategory,
+          department: record.department,
+          firstName: record.contactFirstName,
+          lastName: record.contactLastName,
+          email: record.contactEmail,
+          phone: record.contactPhone,
+          backupContactFirstName: record.backupContactFirstName,
+          backupContactLastName: record.backupContactLastName,
+          backupContactEmail: record.backupContactEmail,
+          backupContactPhone: record.backupContactPhone,
+          backupContactRole: record.backupContactRole,
+          scheduledEventDate: record.scheduledEventDate || record.eventDate,
+          desiredEventDate: record.desiredEventDate,
+          dateFlexible: record.dateFlexible,
+          eventStartTime: record.eventStartTime,
+          eventEndTime: record.eventEndTime,
+          eventAddress: record.eventAddress || record.location,
+          volunteerCount: record.volunteerCount || record.attendeeCount,
           estimatedSandwichCount: record.sandwichCount,
-          dietaryRestrictions: record.dietaryRestrictions,
-          hasIndoorSpace: record.hasIndoorSpace,
+          actualSandwichCount: record.actualSandwichCount,
+          message: record.message,
           hasRefrigeration: record.hasRefrigeration,
-          deliveryInstructions: record.deliveryInstructions,
-          intakeNotes: record.internalNotes,
-          intakeFlags: record.flags,
+          pickupTimeWindow: record.pickupTimeWindow,
+          planningNotes: record.planningNotes,
+          schedulingNotes: record.schedulingNotes,
+          nextAction: record.nextAction,
+          contactAttempts: record.contactAttempts,
         }),
       });
 
