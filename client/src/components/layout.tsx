@@ -92,16 +92,15 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             <p className="text-xs text-muted-foreground truncate">{user?.role === 'intake_team' ? 'Intake Team' : user?.role === 'admin' || user?.role === 'admin_coordinator' ? 'Admin' : user?.role === 'volunteer' ? 'Volunteer' : user?.role}</p>
           </div>
         </div>
-        <a href="/api/logout">
-          <Button 
-            variant="outline" 
-            className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
-            data-testid="button-logout"
-          >
-            <LogOut className="h-4 w-4" />
-            Sign Out
-          </Button>
-        </a>
+        <Button
+          variant="outline"
+          className="w-full justify-start gap-3 text-destructive hover:text-destructive hover:bg-destructive/10"
+          data-testid="button-logout"
+          onClick={() => logout()}
+        >
+          <LogOut className="h-4 w-4" />
+          Sign Out
+        </Button>
       </div>
     </div>
   );

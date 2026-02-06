@@ -1,160 +1,162 @@
-import * as client from "openid-client";
-import { Strategy, type VerifyFunction } from "openid-client/passport";
-
-import passport from "passport";
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
-import memoize from "memoizee";
 import connectPg from "connect-pg-simple";
+import bcrypt from "bcrypt";
 import { authStorage } from "./storage";
 
-const getOidcConfig = memoize(
-  async () => {
-    return await client.discovery(
-      new URL(process.env.ISSUER_URL ?? "https://replit.com/oidc"),
-      process.env.REPL_ID!
-    );
-  },
-  { maxAge: 3600 * 1000 }
-);
+const SALT_ROUNDS = 10;
 
 export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
+  const sessionTtl = 30 * 24 * 60 * 60 * 1000; // 30 days
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
     conString: process.env.DATABASE_URL,
     createTableIfMissing: false,
-    ttl: sessionTtl,
+    ttl: sessionTtl / 1000, // connect-pg-simple uses seconds
     tableName: "sessions",
   });
+
+  const isProduction = process.env.NODE_ENV === 'production' || process.env.REPLIT_DEPLOYMENT === '1';
+
   return session({
-    secret: process.env.SESSION_SECRET!,
+    secret: process.env.SESSION_SECRET || 'tsp-intake-dev-secret',
     store: sessionStore,
     resave: false,
     saveUninitialized: false,
+    name: 'tsp.intake.session',
+    rolling: true,
     cookie: {
       httpOnly: true,
-      secure: true,
+      secure: isProduction,
+      sameSite: isProduction ? 'none' as const : 'lax' as const,
       maxAge: sessionTtl,
     },
-  });
-}
-
-function updateUserSession(
-  user: any,
-  tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers
-) {
-  user.claims = tokens.claims();
-  user.access_token = tokens.access_token;
-  user.refresh_token = tokens.refresh_token;
-  user.expires_at = user.claims?.exp;
-}
-
-async function upsertUser(claims: any) {
-  await authStorage.upsertUser({
-    id: claims["sub"],
-    email: claims["email"],
-    firstName: claims["first_name"],
-    lastName: claims["last_name"],
-    profileImageUrl: claims["profile_image_url"],
   });
 }
 
 export async function setupAuth(app: Express) {
   app.set("trust proxy", 1);
   app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
 
-  const config = await getOidcConfig();
+  // POST /api/auth/login — email + password login
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
 
-  const verify: VerifyFunction = async (
-    tokens: client.TokenEndpointResponse & client.TokenEndpointResponseHelpers,
-    verified: passport.AuthenticateCallback
-  ) => {
-    const user = {};
-    updateUserSession(user, tokens);
-    await upsertUser(tokens.claims());
-    verified(null, user);
-  };
+      if (!email) {
+        return res.status(400).json({ success: false, message: "Email is required" });
+      }
 
-  // Keep track of registered strategies
-  const registeredStrategies = new Set<string>();
+      // Find user by email
+      const user = await authStorage.getUserByEmail(email);
+      if (!user) {
+        return res.status(401).json({ success: false, message: "Invalid email or password" });
+      }
 
-  // Helper function to ensure strategy exists for a domain
-  const ensureStrategy = (domain: string) => {
-    const strategyName = `replitauth:${domain}`;
-    if (!registeredStrategies.has(strategyName)) {
-      const strategy = new Strategy(
-        {
-          name: strategyName,
-          config,
-          scope: "openid email profile offline_access",
-          callbackURL: `https://${domain}/api/callback`,
-        },
-        verify
-      );
-      passport.use(strategy);
-      registeredStrategies.add(strategyName);
+      // Check if user is active
+      if (user.isActive === false) {
+        return res.status(403).json({
+          success: false,
+          code: "PENDING_APPROVAL",
+          message: "Your account is pending approval.",
+        });
+      }
+
+      // Check if user needs password setup (no password set yet)
+      if (!user.password) {
+        return res.status(403).json({
+          success: false,
+          code: "NO_PASSWORD",
+          message: "No password is set for this account. Please contact an administrator.",
+        });
+      }
+
+      if (!password) {
+        return res.status(400).json({ success: false, message: "Password is required" });
+      }
+
+      // Verify bcrypt password
+      if (!user.password.startsWith('$2b$') && !user.password.startsWith('$2a$')) {
+        return res.status(403).json({
+          success: false,
+          code: "PASSWORD_RESET_REQUIRED",
+          message: "Your password must be reset. Please contact an administrator.",
+        });
+      }
+
+      const isValid = await bcrypt.compare(password.trim(), user.password);
+      if (!isValid) {
+        return res.status(401).json({ success: false, message: "Invalid email or password" });
+      }
+
+      // Save user info in session
+      (req.session as any).userId = user.id;
+
+      req.session.save((err) => {
+        if (err) {
+          console.error("Session save error:", err);
+          return res.status(500).json({ success: false, message: "Failed to create session" });
+        }
+        return res.json({
+          success: true,
+          user: {
+            id: user.id,
+            email: user.email,
+            firstName: user.firstName,
+            lastName: user.lastName,
+            role: user.role,
+            approvalStatus: user.approvalStatus,
+          },
+        });
+      });
+    } catch (error) {
+      console.error("Login error:", error);
+      res.status(500).json({ success: false, message: "An error occurred during login" });
     }
-  };
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-
-  app.get("/api/login", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      prompt: "login consent",
-      scope: ["openid", "email", "profile", "offline_access"],
-    })(req, res, next);
   });
 
-  app.get("/api/callback", (req, res, next) => {
-    ensureStrategy(req.hostname);
-    passport.authenticate(`replitauth:${req.hostname}`, {
-      successReturnToOrRedirect: "/",
-      failureRedirect: "/api/login",
-    })(req, res, next);
+  // POST /api/auth/logout
+  app.post("/api/auth/logout", (req, res) => {
+    req.session.destroy((err) => {
+      if (err) {
+        console.error("Session destroy error:", err);
+        return res.status(500).json({ success: false, message: "Failed to logout" });
+      }
+      res.clearCookie('tsp.intake.session');
+      return res.json({ success: true, message: "Logged out successfully" });
+    });
   });
 
+  // GET /api/logout — redirect-based logout (for links)
   app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.redirect(
-        client.buildEndSessionUrl(config, {
-          client_id: process.env.REPL_ID!,
-          post_logout_redirect_uri: `${req.protocol}://${req.hostname}`,
-        }).href
-      );
+    req.session.destroy((err) => {
+      if (err) console.error("Session destroy error:", err);
+      res.clearCookie('tsp.intake.session');
+      res.redirect("/");
     });
   });
 }
 
 export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
+  const userId = (req.session as any)?.userId;
 
-  if (!req.isAuthenticated() || !user.expires_at) {
+  if (!userId) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const now = Math.floor(Date.now() / 1000);
-  if (now <= user.expires_at) {
-    return next();
+  // Fetch fresh user data to ensure the user still exists
+  const user = await authStorage.getUser(userId);
+  if (!user) {
+    return res.status(401).json({ message: "Unauthorized" });
   }
 
-  const refreshToken = user.refresh_token;
-  if (!refreshToken) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  // Attach user to request for downstream use
+  (req as any).dbUser = user;
 
-  try {
-    const config = await getOidcConfig();
-    const tokenResponse = await client.refreshTokenGrant(config, refreshToken);
-    updateUserSession(user, tokenResponse);
-    return next();
-  } catch (error) {
-    res.status(401).json({ message: "Unauthorized" });
-    return;
-  }
+  next();
 };
+
+// Utility: hash a password
+export async function hashPassword(plain: string): Promise<string> {
+  return bcrypt.hash(plain.trim(), SALT_ROUNDS);
+}

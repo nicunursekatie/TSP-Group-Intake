@@ -2,13 +2,18 @@ import type { IntakeRecord, Task, User } from "./types";
 
 const API_BASE = "/api";
 
+// Helper to always include credentials for session cookies
+function apiFetch(url: string, options?: RequestInit): Promise<Response> {
+  return fetch(url, { credentials: "include", ...options });
+}
+
 export const api = {
   // Auth
-  async login(email: string): Promise<User> {
-    const res = await fetch(`${API_BASE}/auth/login`, {
+  async login(email: string, password: string): Promise<User> {
+    const res = await apiFetch(`${API_BASE}/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email }),
+      body: JSON.stringify({ email, password }),
     });
     if (!res.ok) throw new Error("Login failed");
     return res.json();
@@ -16,19 +21,19 @@ export const api = {
 
   // Intake Records
   async getIntakeRecords(): Promise<IntakeRecord[]> {
-    const res = await fetch(`${API_BASE}/intake-records`);
+    const res = await apiFetch(`${API_BASE}/intake-records`);
     if (!res.ok) throw new Error("Failed to fetch records");
     return res.json();
   },
 
   async getIntakeRecord(id: string): Promise<IntakeRecord> {
-    const res = await fetch(`${API_BASE}/intake-records/${id}`);
+    const res = await apiFetch(`${API_BASE}/intake-records/${id}`);
     if (!res.ok) throw new Error("Failed to fetch record");
     return res.json();
   },
 
   async createIntakeRecord(data: Partial<IntakeRecord>): Promise<IntakeRecord> {
-    const res = await fetch(`${API_BASE}/intake-records`, {
+    const res = await apiFetch(`${API_BASE}/intake-records`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -38,7 +43,7 @@ export const api = {
   },
 
   async updateIntakeRecord(id: string, data: Partial<IntakeRecord>): Promise<IntakeRecord> {
-    const res = await fetch(`${API_BASE}/intake-records/${id}`, {
+    const res = await apiFetch(`${API_BASE}/intake-records/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -48,7 +53,7 @@ export const api = {
   },
 
   async deleteIntakeRecord(id: string): Promise<void> {
-    const res = await fetch(`${API_BASE}/intake-records/${id}`, {
+    const res = await apiFetch(`${API_BASE}/intake-records/${id}`, {
       method: "DELETE",
     });
     if (!res.ok) throw new Error("Failed to delete record");
@@ -56,13 +61,13 @@ export const api = {
 
   // Tasks
   async getTasksForIntake(intakeId: string): Promise<Task[]> {
-    const res = await fetch(`${API_BASE}/intake-records/${intakeId}/tasks`);
+    const res = await apiFetch(`${API_BASE}/intake-records/${intakeId}/tasks`);
     if (!res.ok) throw new Error("Failed to fetch tasks");
     return res.json();
   },
 
   async updateTask(id: string, data: Partial<Task>): Promise<Task> {
-    const res = await fetch(`${API_BASE}/tasks/${id}`, {
+    const res = await apiFetch(`${API_BASE}/tasks/${id}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -73,7 +78,7 @@ export const api = {
 
   // Sync
   async syncFromPlatform(): Promise<{ imported: number; updated: number; total: number; message: string }> {
-    const res = await fetch(`${API_BASE}/sync/pull`, {
+    const res = await apiFetch(`${API_BASE}/sync/pull`, {
       method: "POST",
     });
     if (!res.ok) {
@@ -84,7 +89,7 @@ export const api = {
   },
 
   async pushToPlatform(id: string): Promise<{ success: boolean; message: string }> {
-    const res = await fetch(`${API_BASE}/sync/push/${id}`, {
+    const res = await apiFetch(`${API_BASE}/sync/push/${id}`, {
       method: "POST",
     });
     if (!res.ok) {
@@ -95,7 +100,7 @@ export const api = {
   },
 
   async getSyncLogs(): Promise<any[]> {
-    const res = await fetch(`${API_BASE}/sync/logs`);
+    const res = await apiFetch(`${API_BASE}/sync/logs`);
     if (!res.ok) throw new Error("Failed to fetch sync logs");
     return res.json();
   },

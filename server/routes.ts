@@ -9,10 +9,9 @@ import { eventRequests } from "@shared/platformTables";
 import { db } from "./db";
 import { eq, and, or, inArray, isNotNull } from "drizzle-orm";
 
-// Helper to get user from request
+// Helper to get user from request (reads from session)
 function getUserId(req: Request): string | null {
-  const user = req.user as any;
-  return user?.claims?.sub || null;
+  return (req.session as any)?.userId || null;
 }
 
 // Middleware to check if user is approved
@@ -152,13 +151,9 @@ export async function registerRoutes(
     }
   });
 
-  // Admin: Trigger platform ID lookup for a specific user
+  // Admin: Trigger platform ID lookup for a specific user (direct DB query)
   app.post("/api/admin/users/:id/link-platform", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
-        return res.status(400).json({ error: "Platform sync not configured." });
-      }
-
       const user = await authStorage.getUser(req.params.id);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -167,44 +162,30 @@ export async function registerRoutes(
         return res.status(400).json({ error: "User has no email address" });
       }
 
-      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
-      const response = await platformFetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Look up platform user by email in the shared users table
+      const [platformUser] = await db.select({ id: users.id })
+        .from(users)
+        .where(and(
+          eq(users.email, user.email),
+          isNotNull(users.password)
+        ))
+        .limit(1);
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return res.status(404).json({ error: `No platform account found for ${user.email}` });
-        }
-        return res.status(response.status).json({ error: "Platform lookup failed" });
+      if (!platformUser) {
+        return res.status(404).json({ error: `No platform account found for ${user.email}` });
       }
 
-      const data = await response.json();
-      const platformUserId = data.data?.userId || data.userId;
-
-      if (!platformUserId) {
-        return res.status(404).json({ error: "Could not find a platform user ID" });
-      }
-
-      await storage.updateUserSettings(req.params.id, { platformUserId });
-      res.json({ success: true, platformUserId });
+      await storage.updateUserSettings(req.params.id, { platformUserId: platformUser.id });
+      res.json({ success: true, platformUserId: platformUser.id });
     } catch (error: any) {
       console.error('Admin platform link error:', error);
       res.status(500).json({ error: "Failed to link platform account" });
     }
   });
 
-  // Admin: Bulk auto-link all unlinked approved users to the platform
+  // Admin: Bulk auto-link all unlinked approved users to the platform (direct DB)
   app.post("/api/admin/users/bulk-link-platform", isAuthenticated, isAdmin, async (req, res) => {
     try {
-      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
-        return res.status(400).json({ error: "Platform sync not configured." });
-      }
-
       const allUsers = await storage.listUsers();
       const unlinked = allUsers.filter(u => u.approvalStatus === 'approved' && !u.platformUserId && u.email);
 
@@ -214,26 +195,22 @@ export async function registerRoutes(
 
       for (const user of unlinked) {
         try {
-          const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email!)}`;
-          const response = await platformFetch(apiUrl, {
-            method: 'GET',
-            headers: {
-              'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-          });
-          if (response.ok) {
-            const data = await response.json();
-            const platformUserId = data.data?.userId || data.userId;
-            if (platformUserId) {
-              await storage.updateUserSettings(user.id, { platformUserId });
-              linked++;
-              results.push({ email: user.email!, status: 'linked', platformUserId });
-              continue;
-            }
+          const [platformUser] = await db.select({ id: users.id })
+            .from(users)
+            .where(and(
+              eq(users.email, user.email!),
+              isNotNull(users.password)
+            ))
+            .limit(1);
+
+          if (platformUser) {
+            await storage.updateUserSettings(user.id, { platformUserId: platformUser.id });
+            linked++;
+            results.push({ email: user.email!, status: 'linked', platformUserId: platformUser.id });
+          } else {
+            failed++;
+            results.push({ email: user.email!, status: 'not_found' });
           }
-          failed++;
-          results.push({ email: user.email!, status: 'not_found' });
         } catch (err: any) {
           failed++;
           results.push({ email: user.email!, status: 'error' });
@@ -285,55 +262,33 @@ export async function registerRoutes(
 
   app.post("/api/settings/lookup-platform-id", isAuthenticated, async (req, res) => {
     try {
-      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
-        return res.status(400).json({ 
-          error: "Platform sync not configured." 
-        });
-      }
-
       const userId = getUserId(req);
       const user = await authStorage.getUser(userId!);
       if (!user?.email) {
         return res.status(400).json({ error: "No email address on your account. Cannot look up platform ID." });
       }
 
-      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
-      console.log(`Platform user lookup: ${apiUrl}`);
+      console.log(`Platform user lookup (direct DB) for: ${user.email}`);
 
-      const response = await platformFetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      });
+      // Look up platform user by email in the shared users table
+      const [platformUser] = await db.select({ id: users.id })
+        .from(users)
+        .where(and(
+          eq(users.email, user.email),
+          isNotNull(users.password) // Platform users have passwords; Replit OIDC users don't
+        ))
+        .limit(1);
 
-      if (!response.ok) {
-        if (response.status === 404) {
-          return res.status(404).json({ error: "No matching user found on the main platform for your email address." });
-        }
-        const errorText = await response.text();
-        console.error(`Platform user lookup failed: ${response.status} - ${errorText}`);
-        return res.status(response.status).json({ error: "Failed to look up platform user." });
+      if (!platformUser) {
+        return res.status(404).json({ error: "No matching user found on the main platform for your email address." });
       }
 
-      const responseData = await response.json();
-      const platformUserId = responseData.data?.userId || responseData.userId;
+      await storage.updateUserSettings(userId!, { platformUserId: platformUser.id });
 
-      if (!platformUserId) {
-        return res.status(404).json({ error: "Could not find your platform user ID." });
-      }
-
-      await storage.updateUserSettings(userId!, { platformUserId });
-
-      res.json({ success: true, platformUserId });
+      res.json({ success: true, platformUserId: platformUser.id });
     } catch (error: any) {
       console.error('Platform user lookup error:', error);
-      const isConnectionError = error.code === 'ECONNRESET' || error.message === 'fetch failed' || error.name === 'TimeoutError';
-      const userMessage = isConnectionError
-        ? "Could not reach the main platform (it may be starting up). Please try again in a few seconds."
-        : "Failed to look up platform user ID.";
-      res.status(500).json({ error: userMessage });
+      res.status(500).json({ error: "Failed to look up platform user ID." });
     }
   });
 
@@ -571,20 +526,15 @@ export async function registerRoutes(
         flags,
       });
 
-      // Sync status to main platform if this record was imported and status changed
-      if (record?.externalEventId && MAIN_PLATFORM_URL && MAIN_PLATFORM_API_KEY) {
+      // Sync status to main platform's event_requests table if this record was imported
+      if (record?.externalEventId) {
         const statusChanged = validated.status && validated.status !== existing.status;
-        // Auto-notify platform when coordinator starts working (status moves from New → In Process)
+        // Auto-update platform when coordinator starts working (status moves from New → In Process)
         if (statusChanged && validated.status === 'In Process') {
           try {
-            await platformFetch(`${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`, {
-              method: 'PATCH',
-              headers: {
-                'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-                'Content-Type': 'application/json',
-              },
-              body: JSON.stringify({ status: 'in_process' }),
-            });
+            await db.update(eventRequests)
+              .set({ status: 'in_process' })
+              .where(eq(eventRequests.id, parseInt(record.externalEventId)));
             console.log(`Platform status updated to in_process for event ${record.externalEventId}`);
           } catch (err: any) {
             console.error('Failed to update platform status:', err.message);
@@ -670,23 +620,11 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync - Pull new event requests assigned to current user from main platform
+  // Platform Sync - Pull event requests assigned to current user (direct DB query)
   app.post("/api/sync/pull", isAuthenticated, isApproved, async (req, res) => {
     try {
       const userId = getUserId(req);
       const currentUser = await authStorage.getUser(userId!);
-      
-      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
-        await storage.createSyncLog({
-          direction: 'pull',
-          recordCount: 0,
-          status: 'error',
-          error: 'Missing MAIN_PLATFORM_URL or MAIN_PLATFORM_API_KEY environment variables',
-        });
-        return res.status(400).json({ 
-          error: "Sync not configured. Please set MAIN_PLATFORM_URL and MAIN_PLATFORM_API_KEY." 
-        });
-      }
 
       // User must have their platform user ID linked to sync
       if (!currentUser?.platformUserId) {
@@ -695,41 +633,20 @@ export async function registerRoutes(
         });
       }
 
-      console.log(`Sync pull: User ${currentUser.email} has platformUserId: "${currentUser.platformUserId}"`);
+      console.log(`Sync pull (direct DB): User ${currentUser.email} platformUserId="${currentUser.platformUserId}"`);
 
-      // Pull all active statuses so both apps stay in sync during transition
-      const queryParams = new URLSearchParams({
-        tspContact: currentUser.platformUserId,
-        status: 'new,in_process,scheduled',
-      });
+      // Query the main platform's event_requests table directly
+      const events = await db.select().from(eventRequests)
+        .where(and(
+          or(
+            eq(eventRequests.tspContactAssigned, currentUser.platformUserId),
+            eq(eventRequests.tspContact, currentUser.platformUserId)
+          ),
+          inArray(eventRequests.status, ['new', 'in_process', 'scheduled'])
+        ));
 
-      // Fetch event requests from main platform using the external API endpoint
-      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests?${queryParams.toString()}`;
-      console.log(`Sync pull: Fetching from ${apiUrl}`);
+      console.log(`Sync pull: Found ${events.length} event requests in DB`);
 
-      const response = await platformFetch(apiUrl, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Sync pull failed: ${response.status} - ${errorText}`);
-        await storage.createSyncLog({
-          direction: 'pull',
-          recordCount: 0,
-          status: 'error',
-          error: `API Error: ${response.status} - ${errorText}`,
-        });
-        return res.status(response.status).json({ error: `Failed to fetch from main platform: ${errorText}` });
-      }
-
-      const responseBody = await response.json();
-      // Platform returns { success: true, data: [...], count: N }
-      const eventRequests = Array.isArray(responseBody) ? responseBody : (responseBody.data || responseBody.eventRequests || []);
       let importedCount = 0;
       let updatedCount = 0;
 
@@ -750,14 +667,12 @@ export async function registerRoutes(
         }
       }
 
-      for (const event of eventRequests) {
-        const externalId = (event.id || event.eventRequestId)?.toString();
-        const existing = externalId ? existingByExternalId.get(externalId) : null;
+      for (const event of events) {
+        const externalId = event.id.toString();
+        const existing = existingByExternalId.get(externalId);
 
-        // Platform API returns camelCase field names matching event_requests table
+        // Drizzle returns proper types — timestamps are already Date objects
         const contactName = [event.firstName, event.lastName].filter(Boolean).join(' ') || 'Unknown Contact';
-        const scheduledDate = event.scheduledEventDate ? new Date(event.scheduledEventDate) : null;
-        const desiredDate = event.desiredEventDate ? new Date(event.desiredEventDate) : null;
         const platformStatus = event.status?.toLowerCase() || 'new';
         const localStatus = platformStatusToLocal[platformStatus] || 'New';
 
@@ -781,9 +696,9 @@ export async function registerRoutes(
           organizationCategory: event.organizationCategory || null,
           department: event.department || null,
           // Event dates & times
-          eventDate: scheduledDate || desiredDate,
-          desiredEventDate: desiredDate,
-          scheduledEventDate: scheduledDate,
+          eventDate: event.scheduledEventDate || event.desiredEventDate || null,
+          desiredEventDate: event.desiredEventDate || null,
+          scheduledEventDate: event.scheduledEventDate || null,
           dateFlexible: event.dateFlexible ?? null,
           eventTime: event.eventStartTime || '',
           eventStartTime: event.eventStartTime || null,
@@ -811,7 +726,7 @@ export async function registerRoutes(
           schedulingNotes: event.schedulingNotes || null,
           nextAction: event.nextAction || null,
           contactAttempts: event.contactAttempts || null,
-          contactAttemptsLog: event.contactAttemptsLog || null,
+          contactAttemptsLog: event.contactAttemptsLog as any[] || null,
           // Status
           status: localStatus,
         };
@@ -856,34 +771,24 @@ export async function registerRoutes(
         success: true,
         imported: importedCount,
         updated: updatedCount,
-        total: eventRequests.length,
+        total: events.length,
         message: `Imported ${importedCount} new, updated ${updatedCount} existing`
       });
     } catch (error: any) {
       console.error('Sync pull error:', error);
-      const isConnectionError = error.code === 'ECONNRESET' || error.message === 'fetch failed' || error.name === 'TimeoutError';
-      const userMessage = isConnectionError
-        ? "Could not reach the main platform (it may be starting up). Please try again in a few seconds."
-        : (error.message || "Sync failed");
       await storage.createSyncLog({
         direction: 'pull',
         recordCount: 0,
         status: 'error',
         error: error.message || 'Unknown error',
       });
-      res.status(500).json({ error: userMessage });
+      res.status(500).json({ error: error.message || "Sync failed" });
     }
   });
 
-  // Platform Sync - Push intake data back to main platform and mark as scheduled
+  // Platform Sync - Push intake data back to main platform (direct DB update)
   app.post("/api/sync/push/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
-      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
-        return res.status(400).json({ 
-          error: "Sync not configured. Please set MAIN_PLATFORM_URL and MAIN_PLATFORM_API_KEY." 
-        });
-      }
-
       const record = await storage.getIntakeRecord(req.params.id);
       if (!record) {
         return res.status(404).json({ error: "Record not found" });
@@ -900,19 +805,21 @@ export async function registerRoutes(
         return res.status(403).json({ error: "You can only sync records assigned to you" });
       }
 
-      // Push updates back to main platform using the external API endpoint
-      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`;
-      console.log(`Sync push: Updating ${apiUrl}`);
-      
-      const response = await platformFetch(apiUrl, {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          // Use platform's camelCase field names
-          status: record.status === 'Scheduled' ? 'scheduled' : record.status === 'Completed' ? 'completed' : 'in_process',
+      const eventId = parseInt(record.externalEventId);
+      console.log(`Sync push (direct DB): Updating event_requests id=${eventId}`);
+
+      // Map intake status back to platform status
+      const statusMap: Record<string, string> = {
+        'Scheduled': 'scheduled',
+        'Completed': 'completed',
+        'In Process': 'in_process',
+        'New': 'new',
+      };
+
+      // Write directly to the main platform's event_requests table
+      await db.update(eventRequests)
+        .set({
+          status: statusMap[record.status] || 'in_process',
           organizationName: record.organizationName,
           organizationCategory: record.organizationCategory,
           department: record.department,
@@ -941,20 +848,8 @@ export async function registerRoutes(
           schedulingNotes: record.schedulingNotes,
           nextAction: record.nextAction,
           contactAttempts: record.contactAttempts,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error(`Sync push failed: ${response.status} - ${errorText}`);
-        await storage.createSyncLog({
-          direction: 'push',
-          recordCount: 0,
-          status: 'error',
-          error: `API Error: ${response.status} - ${errorText}`,
-        });
-        return res.status(response.status).json({ error: `Failed to update main platform: ${errorText}` });
-      }
+        })
+        .where(eq(eventRequests.id, eventId));
 
       await storage.createSyncLog({
         direction: 'push',
@@ -966,6 +861,12 @@ export async function registerRoutes(
       res.json({ success: true, message: "Successfully synced to main platform (marked as scheduled)" });
     } catch (error: any) {
       console.error('Sync push error:', error);
+      await storage.createSyncLog({
+        direction: 'push',
+        recordCount: 0,
+        status: 'error',
+        error: error.message || 'Push failed',
+      });
       res.status(500).json({ error: error.message || "Push sync failed" });
     }
   });

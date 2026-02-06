@@ -14,9 +14,9 @@ export default function LandingPage() {
               </div>
               <span className="text-white font-semibold text-lg">The Sandwich Project</span>
             </div>
-            <a href="/api/login">
-              <Button 
-                variant="secondary" 
+            <a href="/login">
+              <Button
+                variant="secondary"
                 className="bg-white text-[#236383] hover:bg-[#fbad3f] hover:text-white transition-colors"
                 data-testid="button-login"
               >

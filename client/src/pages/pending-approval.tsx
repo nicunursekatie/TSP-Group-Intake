@@ -28,12 +28,13 @@ export default function PendingApproval() {
             please contact your organization administrator.
           </p>
           <div className="pt-4">
-            <a href="/api/logout">
-              <Button variant="outline" className="gap-2" data-testid="button-logout">
-                <LogOut className="h-4 w-4" />
-                Sign Out
-              </Button>
-            </a>
+            <Button variant="outline" className="gap-2" data-testid="button-logout" onClick={() => {
+              fetch("/api/auth/logout", { method: "POST", credentials: "include" })
+                .then(() => { window.location.href = "/"; });
+            }}>
+              <LogOut className="h-4 w-4" />
+              Sign Out
+            </Button>
           </div>
         </CardContent>
       </Card>

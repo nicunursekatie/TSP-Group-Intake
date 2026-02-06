@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import NotFound from "@/pages/not-found";
 import Layout from "@/components/layout";
 import LandingPage from "@/pages/landing";
+import LoginPage from "@/pages/login";
 import Dashboard from "@/pages/dashboard";
 import IntakePage from "@/pages/intake";
 import AdminPage from "@/pages/admin";
@@ -72,7 +73,15 @@ function Router() {
           <LandingPage />
         )}
       </Route>
-      
+
+      <Route path="/login">
+        {isAuthenticated ? (
+          <Layout><Dashboard /></Layout>
+        ) : (
+          <LoginPage />
+        )}
+      </Route>
+
       <Route path="/admin">
         <ProtectedRoute component={AdminPage} requireAdmin />
       </Route>
