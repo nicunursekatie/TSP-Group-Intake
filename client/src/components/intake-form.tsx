@@ -31,10 +31,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Copy, Save, Phone } from "lucide-react";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useUpdateIntakeRecord } from "@/lib/queries";
+import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 
 const intakeSchema = z.object({
@@ -60,8 +60,30 @@ type IntakeFormValues = z.infer<typeof intakeSchema>;
 
 export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const updateMutation = useUpdateIntakeRecord();
+  const pushMutation = usePushToPlatform();
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const queryClient = useQueryClient();
+
+  const handleMarkScheduled = () => {
+    // First update local status to Scheduled
+    updateMutation.mutate(
+      { id: intake.id, data: { status: 'Scheduled' } },
+      {
+        onSuccess: () => {
+          // Then push to main platform
+          pushMutation.mutate(intake.id, {
+            onSuccess: () => {
+              toast.success("Marked as scheduled and synced to platform");
+              queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+            },
+            onError: (error: any) => {
+              toast.error(error.message || "Failed to sync to platform");
+            },
+          });
+        },
+      }
+    );
+  };
 
   const form = useForm<IntakeFormValues>({
     resolver: zodResolver(intakeSchema),
@@ -156,9 +178,8 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="New">New</SelectItem>
-                  <SelectItem value="Call Scheduled">Call Scheduled</SelectItem>
-                  <SelectItem value="Call Complete">Call Complete</SelectItem>
-                  <SelectItem value="Pre-Event Confirmed">Pre-Event Confirmed</SelectItem>
+                  <SelectItem value="In Process">In Process</SelectItem>
+                  <SelectItem value="Scheduled">Scheduled</SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
@@ -180,6 +201,21 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
              <Phone className="h-4 w-4 mr-2" />
              Call Script
           </Button>
+          {intake.externalEventId && intake.status !== 'Scheduled' && intake.status !== 'Completed' && (
+            <Button
+              size="sm"
+              onClick={handleMarkScheduled}
+              disabled={pushMutation.isPending}
+              className="flex-1 sm:flex-none bg-teal-600 hover:bg-teal-700 text-white"
+            >
+              {pushMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Send className="h-4 w-4 mr-2" />
+              )}
+              Mark Scheduled
+            </Button>
+          )}
         </div>
       </div>
 

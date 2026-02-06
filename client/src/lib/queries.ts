@@ -78,3 +78,13 @@ export function useSyncFromPlatform() {
     },
   });
 }
+
+export function usePushToPlatform() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => api.pushToPlatform(id),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["intake-records"] });
+    },
+  });
+}

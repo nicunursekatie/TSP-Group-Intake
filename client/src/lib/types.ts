@@ -7,7 +7,7 @@ export interface User {
   role: UserRole;
 }
 
-export type IntakeStatus = 'New' | 'Call Scheduled' | 'Call Complete' | 'Pre-Event Confirmed' | 'Completed';
+export type IntakeStatus = 'New' | 'In Process' | 'Scheduled' | 'Completed';
 
 export interface IntakeRecord {
   id: string;
@@ -37,6 +37,9 @@ export interface IntakeRecord {
   hasRefrigeration: boolean;
   deliveryInstructions: string;
   
+  // External sync
+  externalEventId?: string | null;
+
   // Status & Assignment
   status: IntakeStatus;
   ownerId: string | null;

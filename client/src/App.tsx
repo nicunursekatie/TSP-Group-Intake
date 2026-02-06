@@ -12,8 +12,6 @@ import PendingApproval from "@/pages/pending-approval";
 import SettingsPage from "@/pages/settings";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffect } from "react";
-import { useCreateIntakeRecord } from "@/lib/queries";
-
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ component: Component, requireAdmin = false }: { component: React.ComponentType, requireAdmin?: boolean }) {
@@ -52,44 +50,6 @@ function ProtectedRoute({ component: Component, requireAdmin = false }: { compon
   );
 }
 
-function NewIntakeRedirect() {
-  const createMutation = useCreateIntakeRecord();
-  const [, setLocation] = useLocation();
-  const { user } = useAuth();
-
-  useEffect(() => {
-    if (user && user.approvalStatus === 'approved') {
-      createMutation.mutate({
-        organizationName: "",
-        contactName: "",
-        contactEmail: "",
-        contactPhone: "",
-        eventDate: undefined,
-        eventTime: "",
-        location: "",
-        attendeeCount: 0,
-        sandwichCount: 0,
-        dietaryRestrictions: "",
-        requiresRefrigeration: false,
-        hasIndoorSpace: true,
-        hasRefrigeration: false,
-        deliveryInstructions: "",
-        status: "New",
-        ownerId: user.id,
-        flags: [],
-        internalNotes: "",
-        lastEditedBy: user.id,
-      }, {
-        onSuccess: (record) => {
-          setLocation(`/intake/${record.id}`);
-        }
-      });
-    }
-  }, [user]);
-
-  return null;
-}
-
 function Router() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
@@ -119,10 +79,6 @@ function Router() {
       
       <Route path="/settings">
         <ProtectedRoute component={SettingsPage} />
-      </Route>
-      
-      <Route path="/new">
-        <ProtectedRoute component={NewIntakeRedirect} />
       </Route>
       
       <Route path="/intake/:id">

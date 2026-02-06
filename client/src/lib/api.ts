@@ -72,7 +72,7 @@ export const api = {
   },
 
   // Sync
-  async syncFromPlatform(): Promise<void> {
+  async syncFromPlatform(): Promise<{ imported: number; updated: number; total: number; message: string }> {
     const res = await fetch(`${API_BASE}/sync/pull`, {
       method: "POST",
     });
@@ -80,6 +80,18 @@ export const api = {
       const error = await res.json();
       throw new Error(error.error || "Sync failed");
     }
+    return res.json();
+  },
+
+  async pushToPlatform(id: string): Promise<{ success: boolean; message: string }> {
+    const res = await fetch(`${API_BASE}/sync/push/${id}`, {
+      method: "POST",
+    });
+    if (!res.ok) {
+      const error = await res.json();
+      throw new Error(error.error || "Push sync failed");
+    }
+    return res.json();
   },
 
   async getSyncLogs(): Promise<any[]> {

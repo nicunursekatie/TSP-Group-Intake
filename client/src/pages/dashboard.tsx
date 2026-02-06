@@ -1,27 +1,26 @@
 import { useState } from "react";
 import { Link } from "wouter";
 import { format } from "date-fns";
-import { 
-  Table, 
-  TableBody, 
-  TableCell, 
-  TableHead, 
-  TableHeader, 
-  TableRow 
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow
 } from "@/components/ui/table";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Select, 
-  SelectContent, 
-  SelectItem, 
-  SelectTrigger, 
-  SelectValue 
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
 } from "@/components/ui/select";
-import { 
-  Plus, 
-  Search, 
+import {
+  Search,
   Calendar,
   Filter,
   RefreshCw,
@@ -30,7 +29,7 @@ import {
 import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
 
-type IntakeStatus = 'New' | 'Call Scheduled' | 'Call Complete' | 'Pre-Event Confirmed' | 'Completed';
+type IntakeStatus = 'New' | 'In Process' | 'Scheduled' | 'Completed';
 
 export default function Dashboard() {
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
@@ -43,8 +42,8 @@ export default function Dashboard() {
       onError: (error: any) => {
         toast.error(error.message || "Sync failed");
       },
-      onSuccess: () => {
-        toast.success("Synced with Main Platform");
+      onSuccess: (data) => {
+        toast.success(data.message || "Synced with Main Platform");
       }
     });
   };
@@ -62,9 +61,8 @@ export default function Dashboard() {
   const getStatusColor = (status: string) => {
     switch (status) {
       case 'New': return "bg-blue-100 text-blue-800 border-blue-200";
-      case 'Call Scheduled': return "bg-purple-100 text-purple-800 border-purple-200";
-      case 'Call Complete': return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case 'Pre-Event Confirmed': return "bg-teal-100 text-teal-800 border-teal-200";
+      case 'In Process': return "bg-yellow-100 text-yellow-800 border-yellow-200";
+      case 'Scheduled': return "bg-teal-100 text-teal-800 border-teal-200";
       case 'Completed': return "bg-green-100 text-green-800 border-green-200";
       default: return "bg-gray-100 text-gray-800 border-gray-200";
     }
@@ -86,20 +84,14 @@ export default function Dashboard() {
           <p className="text-muted-foreground mt-1">Manage and track event requests.</p>
         </div>
         <div className="flex gap-2">
-          <Button 
-            variant="outline" 
+          <Button
+            variant="outline"
             onClick={handleSync}
             disabled={syncMutation.isPending}
-            className="hidden sm:flex"
           >
             <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
             {syncMutation.isPending ? 'Syncing...' : 'Sync with Platform'}
           </Button>
-          <Link href="/new">
-            <Button className="shadow-lg hover:shadow-xl transition-all">
-              <Plus className="mr-2 h-4 w-4" /> New Intake
-            </Button>
-          </Link>
         </div>
       </div>
 
@@ -125,9 +117,8 @@ export default function Dashboard() {
             <SelectContent>
               <SelectItem value="all">All Statuses</SelectItem>
               <SelectItem value="New">New</SelectItem>
-              <SelectItem value="Call Scheduled">Call Scheduled</SelectItem>
-              <SelectItem value="Call Complete">Call Complete</SelectItem>
-              <SelectItem value="Pre-Event Confirmed">Pre-Event Confirmed</SelectItem>
+              <SelectItem value="In Process">In Process</SelectItem>
+              <SelectItem value="Scheduled">Scheduled</SelectItem>
               <SelectItem value="Completed">Completed</SelectItem>
             </SelectContent>
           </Select>

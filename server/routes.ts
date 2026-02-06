@@ -403,7 +403,28 @@ export async function registerRoutes(
         ...validated,
         flags,
       });
-      
+
+      // Sync status to main platform if this record was imported and status changed
+      if (record?.externalEventId && MAIN_PLATFORM_URL && MAIN_PLATFORM_API_KEY) {
+        const statusChanged = validated.status && validated.status !== existing.status;
+        // Auto-notify platform when coordinator starts working (status moves from New → In Process)
+        if (statusChanged && validated.status === 'In Process') {
+          try {
+            await fetch(`${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`, {
+              method: 'PATCH',
+              headers: {
+                'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ status: 'in_process' }),
+            });
+            console.log(`Platform status updated to in_process for event ${record.externalEventId}`);
+          } catch (err: any) {
+            console.error('Failed to update platform status:', err.message);
+          }
+        }
+      }
+
       // Regenerate tasks if event date changed
       if (validated.eventDate && validated.eventDate !== existing.eventDate) {
         await storage.deleteTasksForIntake(req.params.id);
@@ -507,16 +528,16 @@ export async function registerRoutes(
         });
       }
 
-      // Build query params - filter by tspContact (platform user ID) and status
+      // Pull all active statuses so both apps stay in sync during transition
       const queryParams = new URLSearchParams({
         tspContact: currentUser.platformUserId,
-        status: 'new request',
+        status: 'new,in_process,scheduled',
       });
 
       // Fetch event requests from main platform using the external API endpoint
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests?${queryParams.toString()}`;
       console.log(`Sync pull: Fetching from ${apiUrl}`);
-      
+
       const response = await fetch(apiUrl, {
         method: 'GET',
         headers: {
@@ -537,59 +558,91 @@ export async function registerRoutes(
         return res.status(response.status).json({ error: `Failed to fetch from main platform: ${errorText}` });
       }
 
-      const data = await response.json();
-      const eventRequests = Array.isArray(data) ? data : (data.eventRequests || data.data || []);
+      const responseBody = await response.json();
+      // Platform returns { success: true, data: [...], count: N }
+      const eventRequests = Array.isArray(responseBody) ? responseBody : (responseBody.data || responseBody.eventRequests || []);
       let importedCount = 0;
+      let updatedCount = 0;
 
-      // Get existing records once for efficiency
+      // Map platform status → local intake status
+      const platformStatusToLocal: Record<string, string> = {
+        'new': 'New',
+        'in_process': 'In Process',
+        'scheduled': 'Scheduled',
+        'completed': 'Completed',
+      };
+
+      // Build lookup map of existing records by externalEventId
       const existingRecords = await storage.listIntakeRecords();
-      const existingExternalIds = new Set(existingRecords.map(r => r.externalEventId).filter(Boolean));
+      const existingByExternalId = new Map<string, typeof existingRecords[0]>();
+      for (const r of existingRecords) {
+        if (r.externalEventId) {
+          existingByExternalId.set(r.externalEventId, r);
+        }
+      }
 
-      // Map and import each event request
       for (const event of eventRequests) {
         const externalId = (event.id || event.eventRequestId)?.toString();
-        
-        // Skip if already imported
-        if (existingExternalIds.has(externalId)) {
-          continue;
+        const existing = externalId ? existingByExternalId.get(externalId) : null;
+
+        // Platform uses camelCase: organizationName, firstName, lastName,
+        // scheduledEventDate, estimatedSandwichCount, etc.
+        const contactName = [event.firstName, event.lastName].filter(Boolean).join(' ') || event.contactName || 'Unknown Contact';
+        const eventDateRaw = event.scheduledEventDate || event.eventDate || event.preferredDate;
+        const platformStatus = event.status?.toLowerCase() || 'new';
+        const localStatus = platformStatusToLocal[platformStatus] || 'New';
+
+        if (existing) {
+          // Update status from platform if it has advanced beyond the local status
+          // (don't overwrite local progress with an older platform status)
+          const statusRank: Record<string, number> = { 'New': 0, 'In Process': 1, 'Scheduled': 2, 'Completed': 3 };
+          const platformRank = statusRank[localStatus] ?? 0;
+          const localRank = statusRank[existing.status] ?? 0;
+
+          if (platformRank > localRank) {
+            await storage.updateIntakeRecord(existing.id, { status: localStatus });
+            updatedCount++;
+          }
+        } else {
+          // New record — import it
+          await storage.createIntakeRecord({
+            externalEventId: externalId,
+            organizationName: event.organizationName || 'Unknown Org',
+            contactName,
+            contactEmail: event.contactEmail || event.email || '',
+            contactPhone: event.contactPhone || event.phone || '',
+            eventDate: eventDateRaw ? new Date(eventDateRaw) : null,
+            eventTime: event.eventTime || event.preferredTime || '',
+            location: event.location || event.address || event.eventLocation || '',
+            attendeeCount: event.estimatedAttendees || event.attendeeCount || 0,
+            sandwichCount: event.estimatedSandwichCount || event.sandwichCount || 0,
+            dietaryRestrictions: event.dietaryRestrictions || event.dietaryNotes || '',
+            requiresRefrigeration: event.requiresRefrigeration || false,
+            hasIndoorSpace: event.hasIndoorSpace ?? true,
+            hasRefrigeration: event.hasRefrigeration || false,
+            deliveryInstructions: event.deliveryInstructions || event.specialInstructions || '',
+            status: localStatus,
+            ownerId: userId,
+            flags: [],
+            internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
+          });
+          importedCount++;
         }
-        
-        await storage.createIntakeRecord({
-          externalEventId: externalId,
-          organizationName: event.organizationName || event.organization_name || event.orgName || 'Unknown Org',
-          contactName: event.contactName || event.contact_name || event.primaryContact || 'Unknown Contact',
-          contactEmail: event.contactEmail || event.contact_email || event.email || '',
-          contactPhone: event.contactPhone || event.contact_phone || event.phone || '',
-          eventDate: event.eventDate || event.event_date || event.preferredDate ? new Date(event.eventDate || event.event_date || event.preferredDate) : null,
-          eventTime: event.eventTime || event.event_time || event.preferredTime || '',
-          location: event.location || event.address || event.eventLocation || '',
-          attendeeCount: event.attendeeCount || event.attendee_count || event.estimatedAttendees || 0,
-          sandwichCount: event.sandwichCount || event.sandwich_count || event.sandwichesRequested || 0,
-          dietaryRestrictions: event.dietaryRestrictions || event.dietary_restrictions || event.dietaryNotes || '',
-          requiresRefrigeration: event.requiresRefrigeration || event.requires_refrigeration || false,
-          hasIndoorSpace: (event.hasIndoorSpace || event.has_indoor_space || event.indoorSpace) ?? true,
-          hasRefrigeration: event.hasRefrigeration || event.has_refrigeration || event.refrigerationAvailable || false,
-          deliveryInstructions: event.deliveryInstructions || event.delivery_instructions || event.specialInstructions || '',
-          status: 'New',
-          ownerId: userId,
-          flags: [],
-          internalNotes: `Imported from main platform on ${new Date().toISOString()}`,
-        });
-        importedCount++;
       }
 
       await storage.createSyncLog({
         direction: 'pull',
-        recordCount: importedCount,
+        recordCount: importedCount + updatedCount,
         status: 'success',
         error: null,
       });
 
-      res.json({ 
-        success: true, 
+      res.json({
+        success: true,
         imported: importedCount,
+        updated: updatedCount,
         total: eventRequests.length,
-        message: `Imported ${importedCount} new event requests` 
+        message: `Imported ${importedCount} new, updated ${updatedCount} existing`
       });
     } catch (error: any) {
       console.error('Sync pull error:', error);
@@ -644,16 +697,15 @@ export async function registerRoutes(
           contactName: record.contactName,
           contactEmail: record.contactEmail,
           contactPhone: record.contactPhone,
-          eventDate: record.eventDate,
+          scheduledEventDate: record.eventDate,
           eventTime: record.eventTime,
           location: record.location,
-          attendeeCount: record.attendeeCount,
-          sandwichCount: record.sandwichCount,
+          estimatedAttendees: record.attendeeCount,
+          estimatedSandwichCount: record.sandwichCount,
           dietaryRestrictions: record.dietaryRestrictions,
           hasIndoorSpace: record.hasIndoorSpace,
           hasRefrigeration: record.hasRefrigeration,
           deliveryInstructions: record.deliveryInstructions,
-          intakeStatus: record.status,
           intakeNotes: record.internalNotes,
           intakeFlags: record.flags,
         }),
