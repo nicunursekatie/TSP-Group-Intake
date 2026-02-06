@@ -108,6 +108,7 @@ export async function registerRoutes(
         firstName: user.firstName,
         lastName: user.lastName,
         phoneNumber: user.phoneNumber,
+        platformUserId: user.platformUserId || null,
         smsAlertsEnabled: user.smsAlertsEnabled === 'true',
         emailNotificationsEnabled: user.emailNotificationsEnabled === 'true',
         notifyOnNewIntake: user.notifyOnNewIntake === 'true',
@@ -129,6 +130,9 @@ export async function registerRoutes(
       
       if ('phoneNumber' in body) {
         updates.phoneNumber = body.phoneNumber;
+      }
+      if ('platformUserId' in body) {
+        updates.platformUserId = body.platformUserId || null;
       }
       if ('smsAlertsEnabled' in body) {
         updates.smsAlertsEnabled = body.smsAlertsEnabled ? 'true' : 'false';
@@ -446,15 +450,18 @@ export async function registerRoutes(
         });
       }
 
-      // Build query params - filter for 'new request' status and assigned to current user
+      // User must have their platform user ID linked to sync
+      if (!currentUser?.platformUserId) {
+        return res.status(400).json({
+          error: "Please link your Platform User ID in Account Settings before syncing."
+        });
+      }
+
+      // Build query params - filter by tspContact (platform user ID) and status
       const queryParams = new URLSearchParams({
+        tspContact: currentUser.platformUserId,
         status: 'new request',
       });
-      
-      // Include user email for assignment filtering if available
-      if (currentUser?.email) {
-        queryParams.append('assignedTo', currentUser.email);
-      }
 
       // Fetch event requests from main platform using the external API endpoint
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests?${queryParams.toString()}`;
@@ -546,8 +553,8 @@ export async function registerRoutes(
     }
   });
 
-  // Platform Sync - Push completed intake data back to main platform (admin only)
-  app.post("/api/sync/push/:id", isAuthenticated, isAdmin, async (req, res) => {
+  // Platform Sync - Push intake data back to main platform and mark as scheduled
+  app.post("/api/sync/push/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
         return res.status(400).json({ 
@@ -564,14 +571,25 @@ export async function registerRoutes(
         return res.status(400).json({ error: "This record was not imported from the main platform" });
       }
 
-      // Push updates back to main platform
-      const response = await fetch(`${MAIN_PLATFORM_URL}/api/event-requests/${record.externalEventId}`, {
+      // Verify the caller owns this record or is an admin
+      const userId = getUserId(req);
+      const currentUser = await authStorage.getUser(userId!);
+      if (record.ownerId !== userId && currentUser?.role !== 'admin') {
+        return res.status(403).json({ error: "You can only sync records assigned to you" });
+      }
+
+      // Push updates back to main platform using the external API endpoint
+      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`;
+      console.log(`Sync push: Updating ${apiUrl}`);
+      
+      const response = await fetch(apiUrl, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
+          status: 'scheduled',
           organizationName: record.organizationName,
           contactName: record.contactName,
           contactEmail: record.contactEmail,
@@ -593,6 +611,7 @@ export async function registerRoutes(
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error(`Sync push failed: ${response.status} - ${errorText}`);
         await storage.createSyncLog({
           direction: 'push',
           recordCount: 0,
@@ -609,8 +628,9 @@ export async function registerRoutes(
         error: null,
       });
 
-      res.json({ success: true, message: "Successfully synced to main platform" });
+      res.json({ success: true, message: "Successfully synced to main platform (marked as scheduled)" });
     } catch (error: any) {
+      console.error('Sync push error:', error);
       res.status(500).json({ error: error.message || "Push sync failed" });
     }
   });

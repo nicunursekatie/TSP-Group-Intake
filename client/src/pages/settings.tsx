@@ -24,6 +24,7 @@ interface UserSettings {
   firstName: string | null;
   lastName: string | null;
   phoneNumber: string | null;
+  platformUserId: string | null;
   smsAlertsEnabled: boolean;
   emailNotificationsEnabled: boolean;
   notifyOnNewIntake: boolean;
@@ -36,6 +37,7 @@ export default function SettingsPage() {
   const [phoneInput, setPhoneInput] = useState("");
   const [verificationCode, setVerificationCode] = useState("");
   const [isVerifying, setIsVerifying] = useState(false);
+  const [platformIdInput, setPlatformIdInput] = useState("");
 
   const { data: settings, isLoading } = useQuery<UserSettings>({
     queryKey: ["/api/settings"],
@@ -204,6 +206,74 @@ export default function SettingsPage() {
               </a>
             </p>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <ExternalLink className="h-5 w-5 text-[#007e8c]" />
+            Platform Sync
+          </CardTitle>
+          <CardDescription>Link your account to the main Sandwich Project platform to sync your assigned events</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {settings?.platformUserId ? (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between p-3 bg-green-50 rounded-lg border border-green-200">
+                <div className="flex items-center gap-2">
+                  <Check className="h-5 w-5 text-green-600" />
+                  <div>
+                    <p className="font-medium text-sm">Platform ID linked</p>
+                    <p className="text-xs text-gray-500 font-mono">{settings.platformUserId}</p>
+                  </div>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    updateSettingsMutation.mutate({ platformUserId: null } as any);
+                  }}
+                  data-testid="button-remove-platform-id"
+                >
+                  Remove
+                </Button>
+              </div>
+              <p className="text-sm text-gray-500">
+                When you sync, the app will pull events assigned to you on the main platform.
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              <p className="text-sm text-gray-600">
+                Enter your user ID from the main Sandwich Project platform. Your admin can provide this — it looks like <span className="font-mono text-xs bg-gray-100 px-1 rounded">user_1234567890_abcdef</span>
+              </p>
+              <div className="flex gap-2">
+                <Input
+                  placeholder="e.g. user_1756855060322_pbabb7eby"
+                  value={platformIdInput}
+                  onChange={(e) => setPlatformIdInput(e.target.value)}
+                  data-testid="input-platform-user-id"
+                />
+                <Button
+                  onClick={() => {
+                    if (platformIdInput.trim()) {
+                      updateSettingsMutation.mutate({ platformUserId: platformIdInput.trim() } as any);
+                      setPlatformIdInput("");
+                    }
+                  }}
+                  disabled={!platformIdInput.trim() || updateSettingsMutation.isPending}
+                  data-testid="button-save-platform-id"
+                >
+                  {updateSettingsMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Link"
+                  )}
+                </Button>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 

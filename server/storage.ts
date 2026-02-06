@@ -13,6 +13,7 @@ import { eq, desc } from "drizzle-orm";
 
 export interface UserSettings {
   phoneNumber?: string | null;
+  platformUserId?: string | null;
   smsAlertsEnabled?: string;
   emailNotificationsEnabled?: string;
   notifyOnNewIntake?: string;
