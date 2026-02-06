@@ -26,6 +26,7 @@ export const users = pgTable("users", {
   approvedBy: varchar("approved_by"),
   approvedAt: timestamp("approved_at"),
   phoneNumber: varchar("phone_number"),
+  platformUserId: varchar("platform_user_id"),
   smsAlertsEnabled: text("sms_alerts_enabled").notNull().default('false'),
   emailNotificationsEnabled: text("email_notifications_enabled").notNull().default('true'),
   notifyOnNewIntake: text("notify_on_new_intake").notNull().default('true'),
