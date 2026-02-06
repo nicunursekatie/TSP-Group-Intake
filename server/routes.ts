@@ -10,6 +10,21 @@ import { authStorage } from "./replit_integrations/auth/storage";
 const MAIN_PLATFORM_URL = process.env.MAIN_PLATFORM_URL;
 const MAIN_PLATFORM_API_KEY = process.env.MAIN_PLATFORM_API_KEY;
 
+// Fetch with retry for Replit-to-Replit calls (first call wakes a sleeping app, second succeeds)
+async function platformFetch(url: string, options: RequestInit, retries = 2): Promise<globalThis.Response> {
+  for (let attempt = 1; attempt <= retries; attempt++) {
+    try {
+      return await fetch(url, options);
+    } catch (err: any) {
+      const isLastAttempt = attempt === retries;
+      if (isLastAttempt) throw err;
+      console.log(`Platform fetch attempt ${attempt} failed (${err.code || err.message}), retrying in 2s...`);
+      await new Promise(r => setTimeout(r, 2000));
+    }
+  }
+  throw new Error('platformFetch: unreachable');
+}
+
 // Helper to get user from request
 function getUserId(req: Request): string | null {
   const user = req.user as any;
@@ -123,7 +138,7 @@ export async function registerRoutes(
       if (MAIN_PLATFORM_URL && MAIN_PLATFORM_API_KEY) {
         try {
           const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(email)}`;
-          const response = await fetch(apiUrl, {
+          const response = await platformFetch(apiUrl, {
             method: 'GET',
             headers: {
               'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
@@ -166,7 +181,7 @@ export async function registerRoutes(
       }
 
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
-      const response = await fetch(apiUrl, {
+      const response = await platformFetch(apiUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
@@ -249,7 +264,7 @@ export async function registerRoutes(
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
       console.log(`Platform user lookup: ${apiUrl}`);
 
-      const response = await fetch(apiUrl, {
+      const response = await platformFetch(apiUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
@@ -522,7 +537,7 @@ export async function registerRoutes(
         // Auto-notify platform when coordinator starts working (status moves from New → In Process)
         if (statusChanged && validated.status === 'In Process') {
           try {
-            await fetch(`${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`, {
+            await platformFetch(`${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`, {
               method: 'PATCH',
               headers: {
                 'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
@@ -650,7 +665,7 @@ export async function registerRoutes(
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests?${queryParams.toString()}`;
       console.log(`Sync pull: Fetching from ${apiUrl}`);
 
-      const response = await fetch(apiUrl, {
+      const response = await platformFetch(apiUrl, {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
@@ -797,7 +812,7 @@ export async function registerRoutes(
       const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/${record.externalEventId}`;
       console.log(`Sync push: Updating ${apiUrl}`);
       
-      const response = await fetch(apiUrl, {
+      const response = await platformFetch(apiUrl, {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
