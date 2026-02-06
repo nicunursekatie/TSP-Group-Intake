@@ -134,7 +134,7 @@ export async function registerRoutes(
         return res.status(400).json({ error: "No email address on your account. Cannot look up platform ID." });
       }
 
-      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/users/lookup?email=${encodeURIComponent(user.email)}`;
+      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
       console.log(`Platform user lookup: ${apiUrl}`);
 
       const response = await fetch(apiUrl, {
@@ -154,8 +154,8 @@ export async function registerRoutes(
         return res.status(response.status).json({ error: "Failed to look up platform user." });
       }
 
-      const data = await response.json();
-      const platformUserId = data.userId || data.id || data.user?.id;
+      const responseData = await response.json();
+      const platformUserId = responseData.data?.userId || responseData.userId;
 
       if (!platformUserId) {
         return res.status(404).json({ error: "Could not find your platform user ID." });
