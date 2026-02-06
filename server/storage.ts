@@ -24,7 +24,9 @@ export interface UserSettings {
 export interface IStorage {
   // Users
   getUser(id: string): Promise<User | undefined>;
+  getUserByEmail(email: string): Promise<User | undefined>;
   listUsers(): Promise<User[]>;
+  createUser(data: { email: string; firstName?: string; lastName?: string; role: string; approvalStatus: string; approvedBy: string; platformUserId?: string | null }): Promise<User>;
   approveUser(id: string, approvedBy: string, role: string): Promise<User | undefined>;
   rejectUser(id: string): Promise<User | undefined>;
   updateUserRole(id: string, role: string): Promise<User | undefined>;
@@ -55,8 +57,27 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
+  async getUserByEmail(email: string): Promise<User | undefined> {
+    const result = await db.select().from(users).where(eq(users.email, email)).limit(1);
+    return result[0];
+  }
+
   async listUsers(): Promise<User[]> {
     return db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async createUser(data: { email: string; firstName?: string; lastName?: string; role: string; approvalStatus: string; approvedBy: string; platformUserId?: string | null }): Promise<User> {
+    const result = await db.insert(users).values({
+      email: data.email,
+      firstName: data.firstName || null,
+      lastName: data.lastName || null,
+      role: data.role,
+      approvalStatus: data.approvalStatus,
+      approvedBy: data.approvedBy,
+      approvedAt: new Date(),
+      platformUserId: data.platformUserId || null,
+    }).returning();
+    return result[0];
   }
 
   async approveUser(id: string, approvedBy: string, role: string): Promise<User | undefined> {

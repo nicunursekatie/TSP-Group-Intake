@@ -95,6 +95,118 @@ export async function registerRoutes(
     }
   });
 
+  // Admin: Create a new user account (pre-approved)
+  app.post("/api/admin/users", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const adminId = getUserId(req);
+      const { email, firstName, lastName, role } = req.body;
+
+      if (!email) {
+        return res.status(400).json({ error: "Email is required" });
+      }
+
+      const existing = await storage.getUserByEmail(email);
+      if (existing) {
+        return res.status(409).json({ error: "A user with that email already exists" });
+      }
+
+      const user = await storage.createUser({
+        email,
+        firstName: firstName || null,
+        lastName: lastName || null,
+        role: role || 'volunteer',
+        approvalStatus: 'approved',
+        approvedBy: adminId!,
+      });
+
+      // Auto-lookup platform ID by email
+      if (MAIN_PLATFORM_URL && MAIN_PLATFORM_API_KEY) {
+        try {
+          const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(email)}`;
+          const response = await fetch(apiUrl, {
+            method: 'GET',
+            headers: {
+              'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          if (response.ok) {
+            const data = await response.json();
+            const platformUserId = data.data?.userId || data.userId;
+            if (platformUserId) {
+              await storage.updateUserSettings(user.id, { platformUserId });
+              return res.status(201).json({ ...user, platformUserId, platformLinked: true });
+            }
+          }
+        } catch (err: any) {
+          console.error('Auto platform lookup failed for new user:', err.message);
+        }
+      }
+
+      res.status(201).json({ ...user, platformLinked: false });
+    } catch (error: any) {
+      console.error('Create user error:', error);
+      res.status(500).json({ error: "Failed to create user" });
+    }
+  });
+
+  // Admin: Trigger platform ID lookup for a specific user
+  app.post("/api/admin/users/:id/link-platform", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
+        return res.status(400).json({ error: "Platform sync not configured." });
+      }
+
+      const user = await authStorage.getUser(req.params.id);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      if (!user.email) {
+        return res.status(400).json({ error: "User has no email address" });
+      }
+
+      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/event-requests/user-lookup?email=${encodeURIComponent(user.email)}`;
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).json({ error: `No platform account found for ${user.email}` });
+        }
+        return res.status(response.status).json({ error: "Platform lookup failed" });
+      }
+
+      const data = await response.json();
+      const platformUserId = data.data?.userId || data.userId;
+
+      if (!platformUserId) {
+        return res.status(404).json({ error: "Could not find a platform user ID" });
+      }
+
+      await storage.updateUserSettings(req.params.id, { platformUserId });
+      res.json({ success: true, platformUserId });
+    } catch (error: any) {
+      console.error('Admin platform link error:', error);
+      res.status(500).json({ error: "Failed to link platform account" });
+    }
+  });
+
+  // Admin: Manually set platform ID for a user
+  app.patch("/api/admin/users/:id/platform-id", isAuthenticated, isAdmin, async (req, res) => {
+    try {
+      const { platformUserId } = req.body;
+      await storage.updateUserSettings(req.params.id, { platformUserId: platformUserId || null });
+      res.json({ success: true });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update platform ID" });
+    }
+  });
+
   // User Settings routes
   app.get("/api/settings", isAuthenticated, async (req, res) => {
     try {

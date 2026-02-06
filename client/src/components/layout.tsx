@@ -2,11 +2,10 @@ import { Link, useLocation } from "wouter";
 import { useAuth } from "@/hooks/use-auth";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
-import { 
-  LayoutDashboard, 
-  FilePlus, 
-  LogOut, 
-  Sandwich, 
+import {
+  LayoutDashboard,
+  LogOut,
+  Sandwich,
   Menu,
   Shield,
   Settings
@@ -43,19 +42,6 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           >
             <LayoutDashboard className="h-4 w-4" />
             Dashboard
-          </Button>
-        </Link>
-        <Link href="/new">
-          <Button 
-            variant="ghost" 
-            className={cn(
-              "w-full justify-start gap-3",
-              location === "/new" && "bg-[#236383]/10 text-[#236383] font-medium"
-            )}
-            data-testid="nav-new-intake"
-          >
-            <FilePlus className="h-4 w-4" />
-            New Intake
           </Button>
         </Link>
         {user?.role === 'admin' && (
