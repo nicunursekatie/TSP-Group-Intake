@@ -120,6 +120,56 @@ export async function registerRoutes(
     }
   });
 
+  app.post("/api/settings/lookup-platform-id", isAuthenticated, async (req, res) => {
+    try {
+      if (!MAIN_PLATFORM_URL || !MAIN_PLATFORM_API_KEY) {
+        return res.status(400).json({ 
+          error: "Platform sync not configured." 
+        });
+      }
+
+      const userId = getUserId(req);
+      const user = await authStorage.getUser(userId!);
+      if (!user?.email) {
+        return res.status(400).json({ error: "No email address on your account. Cannot look up platform ID." });
+      }
+
+      const apiUrl = `${MAIN_PLATFORM_URL}/api/external/users/lookup?email=${encodeURIComponent(user.email)}`;
+      console.log(`Platform user lookup: ${apiUrl}`);
+
+      const response = await fetch(apiUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${MAIN_PLATFORM_API_KEY}`,
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        if (response.status === 404) {
+          return res.status(404).json({ error: "No matching user found on the main platform for your email address." });
+        }
+        const errorText = await response.text();
+        console.error(`Platform user lookup failed: ${response.status} - ${errorText}`);
+        return res.status(response.status).json({ error: "Failed to look up platform user." });
+      }
+
+      const data = await response.json();
+      const platformUserId = data.userId || data.id || data.user?.id;
+
+      if (!platformUserId) {
+        return res.status(404).json({ error: "Could not find your platform user ID." });
+      }
+
+      await storage.updateUserSettings(userId!, { platformUserId });
+
+      res.json({ success: true, platformUserId });
+    } catch (error: any) {
+      console.error('Platform user lookup error:', error);
+      res.status(500).json({ error: "Failed to look up platform user ID." });
+    }
+  });
+
   app.patch("/api/settings", isAuthenticated, async (req, res) => {
     try {
       const userId = getUserId(req);

@@ -137,6 +137,27 @@ export default function SettingsPage() {
     },
   });
 
+  const lookupPlatformIdMutation = useMutation({
+    mutationFn: async () => {
+      const res = await fetch("/api/settings/lookup-platform-id", {
+        method: "POST",
+        credentials: "include",
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Failed to look up platform ID");
+      }
+      return res.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/settings"] });
+      toast.success(`Platform ID linked: ${data.platformUserId}`);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message);
+    },
+  });
+
   const testSmsMutation = useMutation({
     mutationFn: async () => {
       const res = await fetch("/api/settings/test-sms", {
@@ -244,33 +265,69 @@ export default function SettingsPage() {
               </p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <p className="text-sm text-gray-600">
-                Enter your user ID from the main Sandwich Project platform. Your admin can provide this — it looks like <span className="font-mono text-xs bg-gray-100 px-1 rounded">user_1234567890_abcdef</span>
-              </p>
-              <div className="flex gap-2">
-                <Input
-                  placeholder="e.g. user_1756855060322_pbabb7eby"
-                  value={platformIdInput}
-                  onChange={(e) => setPlatformIdInput(e.target.value)}
-                  data-testid="input-platform-user-id"
-                />
+            <div className="space-y-4">
+              <div className="space-y-3">
+                <p className="text-sm text-gray-600">
+                  Click below to automatically find your platform account using your email address.
+                </p>
                 <Button
-                  onClick={() => {
-                    if (platformIdInput.trim()) {
-                      updateSettingsMutation.mutate({ platformUserId: platformIdInput.trim() } as any);
-                      setPlatformIdInput("");
-                    }
-                  }}
-                  disabled={!platformIdInput.trim() || updateSettingsMutation.isPending}
-                  data-testid="button-save-platform-id"
+                  onClick={() => lookupPlatformIdMutation.mutate()}
+                  disabled={lookupPlatformIdMutation.isPending}
+                  className="bg-[#236383] hover:bg-[#1a4a63] w-full"
+                  data-testid="button-auto-link-platform"
                 >
-                  {updateSettingsMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
+                  {lookupPlatformIdMutation.isPending ? (
+                    <>
+                      <Loader2 className="h-4 w-4 animate-spin mr-2" />
+                      Looking up your account...
+                    </>
                   ) : (
-                    "Link"
+                    <>
+                      <ExternalLink className="h-4 w-4 mr-2" />
+                      Auto-Link My Platform Account
+                    </>
                   )}
                 </Button>
+              </div>
+
+              <div className="relative">
+                <div className="absolute inset-0 flex items-center">
+                  <Separator />
+                </div>
+                <div className="relative flex justify-center text-xs uppercase">
+                  <span className="bg-white px-2 text-gray-500">or enter manually</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-sm text-gray-500">
+                  If auto-link doesn't work, enter your platform user ID manually. It looks like <span className="font-mono text-xs bg-gray-100 px-1 rounded">user_1234567890_abcdef</span>
+                </p>
+                <div className="flex gap-2">
+                  <Input
+                    placeholder="e.g. user_1756855060322_pbabb7eby"
+                    value={platformIdInput}
+                    onChange={(e) => setPlatformIdInput(e.target.value)}
+                    data-testid="input-platform-user-id"
+                  />
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      if (platformIdInput.trim()) {
+                        updateSettingsMutation.mutate({ platformUserId: platformIdInput.trim() } as any);
+                        setPlatformIdInput("");
+                      }
+                    }}
+                    disabled={!platformIdInput.trim() || updateSettingsMutation.isPending}
+                    data-testid="button-save-platform-id"
+                  >
+                    {updateSettingsMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      "Link"
+                    )}
+                  </Button>
+                </div>
               </div>
             </div>
           )}
