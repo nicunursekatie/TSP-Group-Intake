@@ -1,0 +1,129 @@
+2026-02-06 23:53:21.99
+3570078b
+System
+system: received signal terminated
+2026-02-06 23:53:21.99
+3570078b
+System
+command finished with error [node ./dist/index.cjs]: signal: terminated
+2026-02-06 23:53:22.05
+3570078b
+System
+main done, exiting
+2026-02-06 23:53:30.43
+19370470
+User
+4:53:30 AM [express] GET /api/auth/user 401 in 3ms :: {"message":"Unauthorized"}
+2026-02-06 23:53:38.97
+19370470
+User
+4:53:38 AM [express] GET /api/auth/user 401 in 2ms :: {"message":"Unauthorized"}
+2026-02-06 23:53:52.27
+19370470
+User
+at async /home/runner/workspace/dist/index.cjs:97:32514
+2026-02-06 23:53:52.27
+19370470
+User
+at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+2026-02-06 23:53:52.27
+19370470
+User
+at async /home/runner/workspace/dist/index.cjs:97:128687 {
+2026-02-06 23:53:52.27
+19370470
+User
+constraint: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+hint: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+Login error: error: The endpoint has been disabled. Enable it using Neon API and retry.
+2026-02-06 23:53:52.27
+19370470
+User
+detail: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+length: 88,
+2026-02-06 23:53:52.27
+19370470
+User
+internalPosition: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+column: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+line: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+internalQuery: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+severity: 'ERROR',
+2026-02-06 23:53:52.27
+19370470
+User
+where: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+}
+2026-02-06 23:53:52.27
+19370470
+User
+at /home/runner/workspace/node_modules/@neondatabase/serverless/index.js:1086:33
+2026-02-06 23:53:52.27
+19370470
+User
+schema: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+file: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+at async Gh.getUserByEmail (/home/runner/workspace/dist/index.cjs:97:127364)
+2026-02-06 23:53:52.27
+19370470
+User
+position: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+table: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+routine: undefined
+2026-02-06 23:53:52.27
+19370470
+User
+dataType: undefined,
+2026-02-06 23:53:52.27
+19370470
+User
+code: 'XX000',
+2026-02-06 23:53:52.27
+19370470
+User
+4:53:52 AM [express] POST /api/auth/login 500 in 216ms :: {"success":false,"message":"An error occurred during login","detail":"The endpoint has been disabled. Enable it using Neon API and retry."}
+2026-02-06 23:54:10.41
+19370470
+User
+4:54:10 AM [express] GET /api/auth/login 200 in 5ms
+2026-02-06 23:54:11.13
+19370470
+User
+4:54:11 AM [express] GET /api/auth/user 401 in 1ms :: {"message":"Unauthorized"}
+Wrap

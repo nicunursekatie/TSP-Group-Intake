@@ -1,6 +1,4 @@
-import { Pool, neonConfig } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/node-postgres";
-import ws from "ws";
+import { drizzle } from "drizzle-orm/neon-http";
 import * as schema from "@shared/schema";
 
 if (!process.env.DATABASE_URL) {
@@ -9,10 +7,4 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-neonConfig.webSocketConstructor = ws;
-
-export const pool = new Pool({
-  connectionString: process.env.DATABASE_URL,
-});
-
-export const db = drizzle({ client: pool, schema });
+export const db = drizzle(process.env.DATABASE_URL, { schema });

@@ -1,20 +1,99 @@
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
-import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { authStorage } from "./storage";
-import { pool } from "../../db";
+import { db } from "../../db";
+import { sessions } from "@shared/schema";
+import { eq, lt } from "drizzle-orm";
 
 const SALT_ROUNDS = 10;
 
+class NeonHttpSessionStore extends session.Store {
+  private ttl: number;
+  private cleanupInterval: ReturnType<typeof setInterval> | null = null;
+
+  constructor(options: { ttl?: number }) {
+    super();
+    this.ttl = (options.ttl || 86400) * 1000;
+    this.cleanupInterval = setInterval(() => this.cleanup(), 15 * 60 * 1000);
+  }
+
+  async get(sid: string, callback: (err?: any, session?: session.SessionData | null) => void) {
+    try {
+      const result = await db.select().from(sessions).where(eq(sessions.sid, sid)).limit(1);
+      if (result.length === 0) {
+        return callback(null, null);
+      }
+      const row = result[0];
+      if (row.expire && new Date(row.expire) < new Date()) {
+        await this.destroy(sid, () => {});
+        return callback(null, null);
+      }
+      const sess = typeof row.sess === 'string' ? JSON.parse(row.sess) : row.sess;
+      callback(null, sess as session.SessionData);
+    } catch (err) {
+      callback(err);
+    }
+  }
+
+  async set(sid: string, sessionData: session.SessionData, callback?: (err?: any) => void) {
+    try {
+      const expire = new Date(Date.now() + this.ttl);
+      const sessJson = JSON.stringify(sessionData);
+
+      const existing = await db.select({ sid: sessions.sid }).from(sessions).where(eq(sessions.sid, sid)).limit(1);
+      
+      if (existing.length > 0) {
+        await db.update(sessions)
+          .set({ sess: sessJson, expire })
+          .where(eq(sessions.sid, sid));
+      } else {
+        await db.insert(sessions).values({
+          sid,
+          sess: sessJson,
+          expire,
+        });
+      }
+      callback?.();
+    } catch (err) {
+      callback?.(err);
+    }
+  }
+
+  async destroy(sid: string, callback?: (err?: any) => void) {
+    try {
+      await db.delete(sessions).where(eq(sessions.sid, sid));
+      callback?.();
+    } catch (err) {
+      callback?.(err);
+    }
+  }
+
+  async touch(sid: string, sessionData: session.SessionData, callback?: (err?: any) => void) {
+    try {
+      const expire = new Date(Date.now() + this.ttl);
+      await db.update(sessions)
+        .set({ expire })
+        .where(eq(sessions.sid, sid));
+      callback?.();
+    } catch (err) {
+      callback?.(err);
+    }
+  }
+
+  private async cleanup() {
+    try {
+      await db.delete(sessions).where(lt(sessions.expire, new Date()));
+    } catch (err) {
+      console.error("Session cleanup error:", err);
+    }
+  }
+}
+
 export function getSession() {
   const sessionTtl = 30 * 24 * 60 * 60 * 1000; // 30 days
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    pool: pool as any,
-    createTableIfMissing: false,
+  const sessionStore = new NeonHttpSessionStore({
     ttl: sessionTtl / 1000,
-    tableName: "sessions",
   });
 
   const isProduction = process.env.NODE_ENV === 'production' || process.env.REPLIT_DEPLOYMENT === '1';
