@@ -4,7 +4,7 @@ import { Clock, LogOut } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function PendingApproval() {
-  const { user } = useAuth();
+  const { user, logout, isLoggingOut } = useAuth();
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-[#236383] via-[#007e8c] to-[#47b3cb] flex items-center justify-center p-4">
@@ -28,10 +28,13 @@ export default function PendingApproval() {
             please contact your organization administrator.
           </p>
           <div className="pt-4">
-            <Button variant="outline" className="gap-2" data-testid="button-logout" onClick={() => {
-              fetch("/api/auth/logout", { method: "POST", credentials: "include" })
-                .then(() => { window.location.href = "/"; });
-            }}>
+            <Button
+              variant="outline"
+              className="gap-2"
+              data-testid="button-logout"
+              onClick={() => logout()}
+              disabled={isLoggingOut}
+            >
               <LogOut className="h-4 w-4" />
               Sign Out
             </Button>
