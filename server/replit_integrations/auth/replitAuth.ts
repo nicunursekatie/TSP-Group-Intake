@@ -109,9 +109,13 @@ export async function setupAuth(app: Express) {
           },
         });
       });
-    } catch (error) {
+    } catch (error: any) {
       console.error("Login error:", error);
-      res.status(500).json({ success: false, message: "An error occurred during login" });
+      res.status(500).json({
+        success: false,
+        message: "An error occurred during login",
+        detail: error?.message,
+      });
     }
   });
 
