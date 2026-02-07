@@ -1,7 +1,7 @@
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
-import bcrypt from "bcrypt";
+import bcrypt from "bcryptjs";
 import { authStorage } from "./storage";
 
 const SALT_ROUNDS = 10;
