@@ -3,6 +3,7 @@ import type { Express, RequestHandler } from "express";
 import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { authStorage } from "./storage";
+import { pool } from "../../db";
 
 const SALT_ROUNDS = 10;
 
@@ -10,9 +11,9 @@ export function getSession() {
   const sessionTtl = 30 * 24 * 60 * 60 * 1000; // 30 days
   const pgStore = connectPg(session);
   const sessionStore = new pgStore({
-    conString: process.env.DATABASE_URL,
+    pool: pool as any,
     createTableIfMissing: false,
-    ttl: sessionTtl / 1000, // connect-pg-simple uses seconds
+    ttl: sessionTtl / 1000,
     tableName: "sessions",
   });
 
