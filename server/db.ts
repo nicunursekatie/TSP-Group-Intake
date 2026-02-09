@@ -1,5 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
-import { Pool } from "pg";
+import pkg from "pg";
+const { Pool } = pkg;
 import * as schema from "@shared/schema";
 
 if (!process.env.DATABASE_URL) {
@@ -10,6 +11,14 @@ if (!process.env.DATABASE_URL) {
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
+  connectionTimeoutMillis: 10000,
+  idleTimeoutMillis: 30000,
+  max: 10,
 });
 
-export const db = drizzle(pool, { schema });
+// Handle unexpected pool errors so they don't crash the process
+pool.on('error', (err) => {
+  console.error('Unexpected database pool error:', err);
+});
+
+export const db = drizzle({ client: pool, schema });

@@ -1,25 +1,27 @@
 import session from "express-session";
 import type { Express, RequestHandler } from "express";
+import connectPg from "connect-pg-simple";
 import bcrypt from "bcryptjs";
 import { authStorage } from "./storage";
 import { pool } from "../../db";
-import connectPgSimple from "connect-pg-simple";
 
 const SALT_ROUNDS = 10;
 
 export function getSession() {
-  const PgSession = connectPgSimple(session);
   const sessionTtl = 30 * 24 * 60 * 60 * 1000; // 30 days
+  const pgStore = connectPg(session);
+  const sessionStore = new pgStore({
+    pool: pool,               // Share the existing pool — no duplicate connections
+    createTableIfMissing: false,
+    ttl: sessionTtl / 1000,
+    tableName: "sessions",
+  });
 
   const isProduction = process.env.NODE_ENV === 'production' || process.env.REPLIT_DEPLOYMENT === '1';
 
   return session({
     secret: process.env.SESSION_SECRET || 'tsp-intake-dev-secret',
-    store: new PgSession({
-      pool,
-      tableName: 'sessions',
-      createTableIfMissing: true,
-    }),
+    store: sessionStore,
     resave: false,
     saveUninitialized: false,
     name: 'tsp.intake.session',
