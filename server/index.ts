@@ -60,6 +60,13 @@ app.use((req, res, next) => {
 });
 
 (async () => {
+  // ── DB startup diagnostic ──
+  const { testConnection } = await import("./db");
+  const dbOk = await testConnection();
+  if (!dbOk) {
+    console.error("[STARTUP] ⚠ Database connection failed — app will start but DB queries will fail");
+  }
+
   await registerRoutes(httpServer, app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {

@@ -6,7 +6,7 @@ import { addDays, subDays } from "date-fns";
 import { setupAuth, registerAuthRoutes, isAuthenticated } from "./replit_integrations/auth";
 import { authStorage } from "./replit_integrations/auth/storage";
 import { eventRequests } from "@shared/platformTables";
-import { db } from "./db";
+import { db, pool, testConnection } from "./db";
 import { eq, and, or, inArray, isNotNull } from "drizzle-orm";
 
 // Helper to get user from request (reads from session)
@@ -59,10 +59,66 @@ export async function registerRoutes(
   app: Express
 ): Promise<Server> {
   
+  // ── Diagnostic endpoint — hit /api/debug/db in browser to see what's going on ──
+  app.get("/api/debug/db", async (req, res) => {
+    const dbUrl = process.env.DATABASE_URL || '';
+    let hostname = 'unknown';
+    let dbName = 'unknown';
+    try {
+      const parsed = new URL(dbUrl);
+      hostname = parsed.hostname;
+      dbName = parsed.pathname.replace('/', '');
+    } catch {}
+
+    let connectionTest = 'not run';
+    let pgVersion = 'unknown';
+    let dbUser = 'unknown';
+    let currentDb = 'unknown';
+    let errorDetail = null;
+
+    try {
+      const ok = await testConnection();
+      if (ok) {
+        connectionTest = 'SUCCESS';
+        const client = await pool.connect();
+        const r = await client.query('SELECT current_database(), current_user, version()');
+        currentDb = r.rows[0].current_database;
+        dbUser = r.rows[0].current_user;
+        pgVersion = r.rows[0].version?.split(',')[0];
+        client.release();
+      } else {
+        connectionTest = 'FAILED';
+      }
+    } catch (err: any) {
+      connectionTest = 'FAILED';
+      errorDetail = {
+        message: err.message,
+        code: err.code,
+        severity: err.severity,
+      };
+    }
+
+    res.json({
+      hostname,
+      dbName,
+      connectionTest,
+      currentDb,
+      dbUser,
+      pgVersion,
+      errorDetail,
+      env: {
+        NODE_ENV: process.env.NODE_ENV,
+        REPLIT_DEPLOYMENT: process.env.REPLIT_DEPLOYMENT,
+        hasProductionDbUrl: !!process.env.PRODUCTION_DATABASE_URL,
+        hasDevDbUrl: !!process.env.DEV_DATABASE_URL,
+      },
+    });
+  });
+
   // Setup Replit Auth (MUST be before other routes)
   await setupAuth(app);
   registerAuthRoutes(app);
-  
+
   // Admin routes for user management
   app.get("/api/admin/users", isAuthenticated, isAdmin, async (req, res) => {
     try {
