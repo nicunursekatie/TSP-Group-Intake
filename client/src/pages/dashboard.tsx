@@ -84,7 +84,8 @@ export default function Dashboard() {
     let records = intakeRecords.filter(record => {
       const matchesSearch =
         record.organizationName.toLowerCase().includes(search.toLowerCase()) ||
-        record.contactName.toLowerCase().includes(search.toLowerCase());
+        record.contactName.toLowerCase().includes(search.toLowerCase()) ||
+        (record.department || '').toLowerCase().includes(search.toLowerCase());
 
       const matchesStatus = statusFilter === "all" || record.status === statusFilter;
 
@@ -230,7 +231,12 @@ export default function Dashboard() {
                     </Badge>
                   </TableCell>
                   <TableCell>
-                    <div className="font-medium">{record.organizationName}</div>
+                    <div className="font-medium">
+                      {record.organizationName}
+                      {record.department && (
+                        <span className="font-normal text-muted-foreground"> — {record.department}</span>
+                      )}
+                    </div>
                     <div className="text-sm text-muted-foreground">{record.contactName}</div>
                   </TableCell>
                   <TableCell>
