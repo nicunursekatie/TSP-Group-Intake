@@ -31,11 +31,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2 } from "lucide-react";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
+import { ContactLogDialog } from "./contact-log-dialog";
 
 const intakeSchema = z.object({
   organizationName: z.string().min(1, "Required"),
@@ -44,6 +45,7 @@ const intakeSchema = z.object({
   contactName: z.string().min(1, "Required"),
   contactEmail: z.string().email().optional().or(z.literal("")),
   contactPhone: z.string().optional(),
+  preferredContactMethod: z.string().optional(),
   backupContactFirstName: z.string().optional(),
   backupContactLastName: z.string().optional(),
   backupContactEmail: z.string().optional(),
@@ -58,6 +60,7 @@ const intakeSchema = z.object({
   attendeeCount: z.coerce.number().min(0),
   sandwichCount: z.coerce.number().min(0),
   actualSandwichCount: z.coerce.number().optional(),
+  sandwichType: z.string().optional(),
   message: z.string().optional(),
   dietaryRestrictions: z.string().optional(),
   requiresRefrigeration: z.boolean(),
@@ -78,6 +81,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const updateMutation = useUpdateIntakeRecord();
   const pushMutation = usePushToPlatform();
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
+  const [contactLogOpen, setContactLogOpen] = useState(false);
   const queryClient = useQueryClient();
 
   const handleMarkScheduled = () => {
@@ -110,12 +114,19 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       contactName: intake.contactName,
       contactEmail: intake.contactEmail || "",
       contactPhone: intake.contactPhone || "",
+      preferredContactMethod: intake.preferredContactMethod || "",
       backupContactFirstName: intake.backupContactFirstName || "",
       backupContactLastName: intake.backupContactLastName || "",
       backupContactEmail: intake.backupContactEmail || "",
       backupContactPhone: intake.backupContactPhone || "",
       backupContactRole: intake.backupContactRole || "",
-      eventDate: intake.eventDate ? format(new Date(intake.eventDate), "yyyy-MM-dd") : "",
+      eventDate: intake.eventDate
+        ? format(new Date(intake.eventDate), "yyyy-MM-dd")
+        : intake.scheduledEventDate
+          ? format(new Date(intake.scheduledEventDate), "yyyy-MM-dd")
+          : intake.desiredEventDate
+            ? format(new Date(intake.desiredEventDate), "yyyy-MM-dd")
+            : "",
       eventStartTime: intake.eventStartTime || "",
       eventEndTime: intake.eventEndTime || "",
       eventTime: intake.eventTime || "",
@@ -124,6 +135,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       attendeeCount: intake.attendeeCount,
       sandwichCount: intake.sandwichCount,
       actualSandwichCount: intake.actualSandwichCount ?? undefined,
+      sandwichType: intake.sandwichType || "",
       message: intake.message || "",
       dietaryRestrictions: intake.dietaryRestrictions || "",
       requiresRefrigeration: intake.requiresRefrigeration,
@@ -139,18 +151,27 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     },
   });
 
-  // Debounced autosave
+  // Debounced autosave — only sends changed fields to avoid overwriting DB data
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
-    
-    const subscription = form.watch((value) => {
+    let pendingUpdates: Record<string, any> = {};
+
+    const subscription = form.watch((value, { name, type }) => {
+      if (!name || type !== 'change') return;
+
+      // Accumulate only the fields that actually changed
+      const fieldValue = value[name as keyof typeof value];
+      if (name === 'eventDate') {
+        pendingUpdates.eventDate = fieldValue ? new Date(fieldValue as string).toISOString() : null;
+      } else {
+        pendingUpdates[name] = fieldValue;
+      }
+
       clearTimeout(timeoutId);
       timeoutId = setTimeout(() => {
-        const updates = {
-          ...value,
-          eventDate: value.eventDate ? new Date(value.eventDate).toISOString() : null,
-        };
-        
+        const updates = { ...pendingUpdates };
+        pendingUpdates = {};
+
         updateMutation.mutate(
           { id: intake.id, data: updates },
           {
@@ -162,7 +183,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
         );
       }, 1000);
     });
-    
+
     return () => {
       clearTimeout(timeoutId);
       subscription.unsubscribe();
@@ -187,7 +208,7 @@ Org: ${v.organizationName}
 Contact: ${v.contactName} (${v.contactEmail})
 Event: ${v.eventDate} @ ${v.eventTime}
 Loc: ${v.location}
-Counts: ${v.attendeeCount} ppl / ${v.sandwichCount} sandwiches
+Counts: ${v.attendeeCount} ppl / ${v.sandwichCount} sandwiches (${v.sandwichType || 'type TBD'})
 Dietary: ${v.dietaryRestrictions || 'None'}
 Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridge' : ''} ${showIndoorWarning ? 'Outdoor' : ''}
     `.trim();
@@ -204,7 +225,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
             control={form.control}
             name="status"
             render={({ field }) => (
-              <Select onValueChange={field.onChange} defaultValue={field.value}>
+              <Select onValueChange={field.onChange} value={field.value}>
                 <SelectTrigger className="w-[180px] h-10 border-primary/20 bg-primary/5 font-medium text-primary">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
@@ -229,9 +250,19 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
             <Copy className="h-4 w-4 mr-2" />
             Copy Summary
           </Button>
-          <Button size="sm" className="flex-1 sm:flex-none bg-secondary hover:bg-secondary/90 text-secondary-foreground">
-             <Phone className="h-4 w-4 mr-2" />
-             Call Script
+          <Button
+            size="sm"
+            variant="outline"
+            className="flex-1 sm:flex-none"
+            onClick={() => setContactLogOpen(true)}
+          >
+            <MessageSquare className="h-4 w-4 mr-2" />
+            Log Contact
+            {(intake.contactAttempts ?? 0) > 0 && (
+              <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
+                {intake.contactAttempts}
+              </Badge>
+            )}
           </Button>
           {intake.externalEventId && intake.status !== 'Scheduled' && intake.status !== 'Completed' && (
             <Button
@@ -284,7 +315,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Category</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value || undefined}>
                           <FormControl>
                             <SelectTrigger className="h-11">
                               <SelectValue placeholder="Select category" />
@@ -349,6 +380,27 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                           <Input placeholder="(555) 123-4567" {...field} />
                         </FormControl>
                         <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="preferredContactMethod"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Preferred Contact Method</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="From their initial message" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="call">Phone Call</SelectItem>
+                            <SelectItem value="text">Text Message</SelectItem>
+                            <SelectItem value="email">Email</SelectItem>
+                          </SelectContent>
+                        </Select>
                       </FormItem>
                     )}
                   />
@@ -453,6 +505,19 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                         <FormControl>
                           <Input type="date" {...field} className="h-11" />
                         </FormControl>
+                        {(intake.desiredEventDate || intake.scheduledEventDate) && (
+                          <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
+                            {intake.desiredEventDate && (
+                              <p>Requested: {format(new Date(intake.desiredEventDate), "MMM d, yyyy")}</p>
+                            )}
+                            {intake.scheduledEventDate && (
+                              <p className="text-teal-600 font-medium">Scheduled: {format(new Date(intake.scheduledEventDate), "MMM d, yyyy")}</p>
+                            )}
+                            {intake.dateFlexible && (
+                              <p className="italic">Date is flexible</p>
+                            )}
+                          </div>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}
@@ -509,8 +574,8 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                 </div>
                 
                 <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
-                  <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Quantities</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                  <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Quantities & Type</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
                     <FormField
                       control={form.control}
                       name="attendeeCount"
@@ -538,6 +603,27 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                               Over 400: Requires TSP Rep
                             </p>
                           )}
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="sandwichType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Sandwich Type</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger className="h-12">
+                                <SelectValue placeholder="Select type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="turkey">Turkey</SelectItem>
+                              <SelectItem value="chicken">Chicken</SelectItem>
+                              <SelectItem value="pbj">PBJ</SelectItem>
+                            </SelectContent>
+                          </Select>
                         </FormItem>
                       )}
                     />
@@ -738,6 +824,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
           </Accordion>
         </form>
       </Form>
+
+      <ContactLogDialog
+        intake={intake}
+        open={contactLogOpen}
+        onOpenChange={setContactLogOpen}
+      />
     </div>
   );
 }

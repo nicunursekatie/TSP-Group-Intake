@@ -1,10 +1,10 @@
 import { useRoute, useLocation } from "wouter";
 import { IntakeForm } from "@/components/intake-form";
-import { TaskSidebar } from "@/components/task-sidebar";
+import { WorkflowSidebar } from "@/components/workflow-sidebar";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ArrowLeft } from "lucide-react";
-import { useIntakeRecord } from "@/lib/queries";
+import { useIntakeRecord, useTasks } from "@/lib/queries";
 
 export default function IntakePage() {
   const [match, params] = useRoute("/intake/:id");
@@ -12,6 +12,7 @@ export default function IntakePage() {
   const id = params?.id;
 
   const { data: record, isLoading } = useIntakeRecord(id);
+  const { data: tasks = [], isLoading: tasksLoading } = useTasks(id);
 
   if (isLoading) {
     return (
@@ -34,7 +35,7 @@ export default function IntakePage() {
 
   return (
     <div className="flex h-[calc(100vh-64px)] md:h-screen flex-col md:flex-row overflow-hidden">
-      
+
       {/* Main Form Area */}
       <div className="flex-1 overflow-y-auto p-4 md:p-8 relative scroll-smooth">
         <div className="max-w-4xl mx-auto mb-4">
@@ -49,13 +50,13 @@ export default function IntakePage() {
              ID: <span className="font-mono text-xs">{record.id.slice(0, 8)}</span> • Created {new Date(record.createdAt).toLocaleDateString()}
           </p>
         </div>
-        
-        <IntakeForm intake={record} />
+
+        <IntakeForm key={record.id} intake={record} />
       </div>
 
-      {/* Right Sidebar - Tasks */}
-      <div className="hidden lg:block w-80 h-full border-l bg-sidebar/30">
-        <TaskSidebar intakeId={record.id} />
+      {/* Right Sidebar - Workflow */}
+      <div className="hidden lg:block w-96 h-full border-l bg-sidebar/30">
+        <WorkflowSidebar intake={record} tasks={tasks} tasksLoading={tasksLoading} />
       </div>
     </div>
   );

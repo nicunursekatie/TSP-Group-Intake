@@ -569,6 +569,17 @@ export async function registerRoutes(
         return res.status(404).json({ error: "Record not found" });
       }
       
+      // Auto-transition: first contact attempt moves New → In Process
+      if (
+        existing.status === 'New' &&
+        validated.contactAttemptsLog &&
+        Array.isArray(validated.contactAttemptsLog) &&
+        validated.contactAttemptsLog.length > 0 &&
+        (!existing.contactAttemptsLog || (existing.contactAttemptsLog as any[]).length === 0)
+      ) {
+        (validated as any).status = 'In Process';
+      }
+
       // Calculate flags
       const flags: string[] = [];
       const updated = { ...existing, ...validated };

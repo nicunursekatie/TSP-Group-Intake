@@ -22,6 +22,7 @@ export const intakeRecords = pgTable("intake_records", {
   contactLastName: text("contact_last_name"),
   contactEmail: text("contact_email"),
   contactPhone: text("contact_phone"),
+  preferredContactMethod: text("preferred_contact_method"), // 'call' | 'text' | 'email'
 
   // Backup Contact
   backupContactFirstName: text("backup_contact_first_name"),
@@ -54,6 +55,7 @@ export const intakeRecords = pgTable("intake_records", {
   // Sandwich Details
   sandwichCount: integer("sandwich_count").notNull().default(0),
   actualSandwichCount: integer("actual_sandwich_count"),
+  sandwichType: text("sandwich_type"), // 'turkey' | 'chicken' | 'pbj'
   dietaryRestrictions: text("dietary_restrictions"),
   requiresRefrigeration: boolean("requires_refrigeration").notNull().default(false),
 
@@ -79,6 +81,9 @@ export const intakeRecords = pgTable("intake_records", {
 
   // Flags
   flags: jsonb("flags").$type<string[]>().notNull().default([]),
+
+  // Intake Workflow Checklist
+  intakeChecklist: jsonb("intake_checklist").$type<Record<string, boolean>>().notNull().default({}),
 
   // Notes
   internalNotes: text("internal_notes"),
