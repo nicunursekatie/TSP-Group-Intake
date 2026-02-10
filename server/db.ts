@@ -3,14 +3,17 @@ import pkg from "pg";
 const { Pool } = pkg;
 import * as schema from "@shared/schema";
 
-if (!process.env.DATABASE_URL) {
+// Use PRODUCTION_DATABASE_URL to avoid Replit's integration overriding DATABASE_URL
+// with its own auto-provisioned (disabled) Neon endpoint.
+const dbUrl = process.env.PRODUCTION_DATABASE_URL || process.env.DATABASE_URL;
+
+if (!dbUrl) {
   throw new Error(
-    "DATABASE_URL must be set. Did you forget to provision a database?",
+    "PRODUCTION_DATABASE_URL (or DATABASE_URL) must be set. Did you forget to provision a database?",
   );
 }
 
 // ── Startup diagnostic: log which endpoint we're actually connecting to ──
-const dbUrl = process.env.DATABASE_URL;
 try {
   const parsed = new URL(dbUrl);
   console.log(`[DB] Connecting to host: ${parsed.hostname}`);
