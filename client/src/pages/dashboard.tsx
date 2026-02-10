@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { Link } from "wouter";
 import { format } from "date-fns";
 import {
@@ -24,18 +24,50 @@ import {
   Calendar,
   Filter,
   RefreshCw,
-  Loader2
+  Loader2,
+  ArrowUp,
+  ArrowDown,
+  ArrowUpDown
 } from "lucide-react";
 import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
 
 type IntakeStatus = 'New' | 'In Process' | 'Scheduled' | 'Completed';
+type SortDirection = 'asc' | 'desc' | null;
+type SortColumn = 'status' | 'organizationName' | 'eventDate' | 'attendeeCount' | null;
+
+const STATUS_ORDER: Record<string, number> = {
+  'New': 0,
+  'In Process': 1,
+  'Scheduled': 2,
+  'Completed': 3,
+};
 
 export default function Dashboard() {
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
   const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+
+  const handleSort = (column: SortColumn) => {
+    if (sortColumn !== column) {
+      setSortColumn(column);
+      setSortDirection('asc');
+    } else if (sortDirection === 'asc') {
+      setSortDirection('desc');
+    } else {
+      setSortColumn(null);
+      setSortDirection(null);
+    }
+  };
+
+  const SortIcon = ({ column }: { column: SortColumn }) => {
+    if (sortColumn !== column) return <ArrowUpDown className="h-3.5 w-3.5 ml-1 text-muted-foreground/50" />;
+    if (sortDirection === 'asc') return <ArrowUp className="h-3.5 w-3.5 ml-1 text-primary" />;
+    return <ArrowDown className="h-3.5 w-3.5 ml-1 text-primary" />;
+  };
 
   const handleSync = () => {
     syncMutation.mutate(undefined, {
@@ -48,15 +80,43 @@ export default function Dashboard() {
     });
   };
 
-  const filteredRecords = intakeRecords.filter(record => {
-    const matchesSearch = 
-      record.organizationName.toLowerCase().includes(search.toLowerCase()) ||
-      record.contactName.toLowerCase().includes(search.toLowerCase());
-    
-    const matchesStatus = statusFilter === "all" || record.status === statusFilter;
-    
-    return matchesSearch && matchesStatus;
-  });
+  const filteredRecords = useMemo(() => {
+    let records = intakeRecords.filter(record => {
+      const matchesSearch =
+        record.organizationName.toLowerCase().includes(search.toLowerCase()) ||
+        record.contactName.toLowerCase().includes(search.toLowerCase());
+
+      const matchesStatus = statusFilter === "all" || record.status === statusFilter;
+
+      return matchesSearch && matchesStatus;
+    });
+
+    if (sortColumn && sortDirection) {
+      records = [...records].sort((a, b) => {
+        let cmp = 0;
+        switch (sortColumn) {
+          case 'status':
+            cmp = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
+            break;
+          case 'organizationName':
+            cmp = (a.organizationName || '').localeCompare(b.organizationName || '');
+            break;
+          case 'eventDate': {
+            const dateA = a.eventDate ? new Date(a.eventDate).getTime() : 0;
+            const dateB = b.eventDate ? new Date(b.eventDate).getTime() : 0;
+            cmp = dateA - dateB;
+            break;
+          }
+          case 'attendeeCount':
+            cmp = (a.attendeeCount || 0) - (b.attendeeCount || 0);
+            break;
+        }
+        return sortDirection === 'desc' ? -cmp : cmp;
+      });
+    }
+
+    return records;
+  }, [intakeRecords, search, statusFilter, sortColumn, sortDirection]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -130,10 +190,26 @@ export default function Dashboard() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-[180px]">Status</TableHead>
-              <TableHead>Organization</TableHead>
-              <TableHead>Event Date</TableHead>
-              <TableHead className="text-right">Attendees</TableHead>
+              <TableHead className="w-[180px]">
+                <button onClick={() => handleSort('status')} className="flex items-center hover:text-primary transition-colors">
+                  Status <SortIcon column="status" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button onClick={() => handleSort('organizationName')} className="flex items-center hover:text-primary transition-colors">
+                  Organization <SortIcon column="organizationName" />
+                </button>
+              </TableHead>
+              <TableHead>
+                <button onClick={() => handleSort('eventDate')} className="flex items-center hover:text-primary transition-colors">
+                  Event Date <SortIcon column="eventDate" />
+                </button>
+              </TableHead>
+              <TableHead className="text-right">
+                <button onClick={() => handleSort('attendeeCount')} className="flex items-center justify-end hover:text-primary transition-colors ml-auto">
+                  Attendees <SortIcon column="attendeeCount" />
+                </button>
+              </TableHead>
               <TableHead className="w-[200px]">Flags</TableHead>
               <TableHead className="w-[100px]"></TableHead>
             </TableRow>
