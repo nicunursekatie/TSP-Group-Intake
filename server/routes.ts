@@ -61,56 +61,55 @@ export async function registerRoutes(
   
   // ── Diagnostic endpoint — hit /api/debug/db in browser to see what's going on ──
   app.get("/api/debug/db", async (req, res) => {
-    const dbUrl = process.env.DATABASE_URL || '';
-    let hostname = 'unknown';
-    let dbName = 'unknown';
-    try {
-      const parsed = new URL(dbUrl);
-      hostname = parsed.hostname;
-      dbName = parsed.pathname.replace('/', '');
-    } catch {}
+    // Show BOTH env vars so we can see what Replit is doing
+    const prodUrl = process.env.PRODUCTION_DATABASE_URL || '';
+    const rawDbUrl = process.env.DATABASE_URL || '';
+    const actualUrl = prodUrl || rawDbUrl; // same logic as db.ts
 
+    let prodHostname = 'not set';
+    let dbUrlHostname = 'not set';
+    let actualHostname = 'not set';
+
+    try { prodHostname = new URL(prodUrl).hostname; } catch {}
+    try { dbUrlHostname = new URL(rawDbUrl).hostname; } catch {}
+    try { actualHostname = new URL(actualUrl).hostname; } catch {}
+
+    // Direct connection test with full error capture
     let connectionTest = 'not run';
-    let pgVersion = 'unknown';
-    let dbUser = 'unknown';
-    let currentDb = 'unknown';
     let errorDetail = null;
+    let pgInfo = null;
 
     try {
-      const ok = await testConnection();
-      if (ok) {
-        connectionTest = 'SUCCESS';
-        const client = await pool.connect();
-        const r = await client.query('SELECT current_database(), current_user, version()');
-        currentDb = r.rows[0].current_database;
-        dbUser = r.rows[0].current_user;
-        pgVersion = r.rows[0].version?.split(',')[0];
-        client.release();
-      } else {
-        connectionTest = 'FAILED';
-      }
+      const client = await pool.connect();
+      const r = await client.query('SELECT current_database(), current_user, version()');
+      pgInfo = {
+        db: r.rows[0].current_database,
+        user: r.rows[0].current_user,
+        version: r.rows[0].version?.split(',')[0],
+      };
+      client.release();
+      connectionTest = 'SUCCESS';
     } catch (err: any) {
       connectionTest = 'FAILED';
       errorDetail = {
         message: err.message,
         code: err.code,
         severity: err.severity,
+        hint: err.hint,
       };
     }
 
     res.json({
-      hostname,
-      dbName,
+      whichUrlPoolUses: actualHostname,
+      PRODUCTION_DATABASE_URL_hostname: prodHostname,
+      DATABASE_URL_hostname: dbUrlHostname,
+      mismatch: prodHostname !== dbUrlHostname,
       connectionTest,
-      currentDb,
-      dbUser,
-      pgVersion,
+      pgInfo,
       errorDetail,
       env: {
         NODE_ENV: process.env.NODE_ENV,
         REPLIT_DEPLOYMENT: process.env.REPLIT_DEPLOYMENT,
-        hasProductionDbUrl: !!process.env.PRODUCTION_DATABASE_URL,
-        hasDevDbUrl: !!process.env.DEV_DATABASE_URL,
       },
     });
   });
