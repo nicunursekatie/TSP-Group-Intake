@@ -73,6 +73,7 @@ export interface IntakeRecord {
   // Logistics
   hasIndoorSpace: boolean;
   hasRefrigeration: boolean;
+  refrigerationConfirmed: boolean;
   pickupTimeWindow?: string | null;
   deliveryInstructions: string;
 
@@ -124,8 +125,8 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
   { key: 'event_address', label: 'Event address (where sandwiches will be made)', group: 'event_details', derivedFrom: (r) => !!(r.eventAddress || r.location) },
   { key: 'event_date', label: 'Event date', group: 'event_details', derivedFrom: (r) => !!r.eventDate },
   { key: 'event_time', label: 'Event time (start and end)', group: 'event_details', derivedFrom: (r) => !!(r.eventStartTime && r.eventEndTime) },
-  { key: 'refrigeration', label: 'Refrigeration available, accessible on event day, enough room', group: 'event_details', derivedFrom: (r) => !!r.hasRefrigeration },
-  { key: 'sandwich_type', label: 'Sandwich type specified (turkey, chicken, or PBJ)', group: 'event_details', derivedFrom: (r) => !!r.sandwichType },
+  { key: 'refrigeration', label: 'Refrigeration confirmed with contact (access, space, education on handling)', group: 'event_details', derivedFrom: (r) => !!r.refrigerationConfirmed },
+  { key: 'sandwich_type', label: 'Sandwich type specified (turkey, ham, chicken, or PBJ)', group: 'event_details', derivedFrom: (r) => !!r.sandwichType },
   { key: 'sandwich_count', label: 'Sandwich count confirmed', group: 'event_details', derivedFrom: (r) => r.sandwichCount > 0 },
 
   // Food Safety & Purchasing (confirmation items)

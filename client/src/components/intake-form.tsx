@@ -66,6 +66,7 @@ const intakeSchema = z.object({
   requiresRefrigeration: z.boolean(),
   hasIndoorSpace: z.boolean(),
   hasRefrigeration: z.boolean(),
+  refrigerationConfirmed: z.boolean(),
   pickupTimeWindow: z.string().optional(),
   deliveryInstructions: z.string().optional(),
   status: z.string(),
@@ -141,6 +142,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       requiresRefrigeration: intake.requiresRefrigeration,
       hasIndoorSpace: intake.hasIndoorSpace,
       hasRefrigeration: intake.hasRefrigeration,
+      refrigerationConfirmed: intake.refrigerationConfirmed ?? false,
       pickupTimeWindow: intake.pickupTimeWindow || "",
       deliveryInstructions: intake.deliveryInstructions || "",
       status: intake.status,
@@ -192,12 +194,23 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
 
   // Derived flags for UI warnings
   const sandwichCount = form.watch("sandwichCount");
+  const sandwichType = form.watch("sandwichType");
   const requiresFridge = form.watch("requiresRefrigeration");
-  const hasFridge = form.watch("hasRefrigeration");
   const hasIndoor = form.watch("hasIndoorSpace");
+  const refrigerationConfirmed = form.watch("refrigerationConfirmed");
+
+  // Auto-set requiresRefrigeration based on sandwich type (deli meats need fridge)
+  const isDeli = sandwichType === 'turkey' || sandwichType === 'ham' || sandwichType === 'chicken';
+  useEffect(() => {
+    if (isDeli && !requiresFridge) {
+      form.setValue("requiresRefrigeration", true, { shouldDirty: true });
+    } else if (!isDeli && sandwichType && requiresFridge) {
+      form.setValue("requiresRefrigeration", false, { shouldDirty: true });
+    }
+  }, [sandwichType, isDeli, requiresFridge, form]);
 
   const showVolumeWarning = sandwichCount >= 400;
-  const showFridgeWarning = requiresFridge && !hasFridge;
+  const showFridgeWarning = requiresFridge && !refrigerationConfirmed;
   const showIndoorWarning = !hasIndoor;
 
   const copySummary = () => {
@@ -210,7 +223,7 @@ Event: ${v.eventDate} @ ${v.eventTime}
 Loc: ${v.location}
 Counts: ${v.attendeeCount} ppl / ${v.sandwichCount} sandwiches (${v.sandwichType || 'type TBD'})
 Dietary: ${v.dietaryRestrictions || 'None'}
-Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridge' : ''} ${showIndoorWarning ? 'Outdoor' : ''}
+Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refrigeration Not Confirmed' : ''} ${showIndoorWarning ? 'Not Indoors' : ''}
     `.trim();
     navigator.clipboard.writeText(text);
     toast.success("Summary copied to clipboard");
@@ -620,7 +633,8 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                             </FormControl>
                             <SelectContent>
                               <SelectItem value="turkey">Turkey</SelectItem>
-                              <SelectItem value="chicken">Chicken</SelectItem>
+                              <SelectItem value="ham">Ham</SelectItem>
+                              <SelectItem value="chicken">Chicken (Deli)</SelectItem>
                               <SelectItem value="pbj">PBJ</SelectItem>
                             </SelectContent>
                           </Select>
@@ -642,14 +656,27 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                     </FormItem>
                   )}
                 />
+
+                <FormField
+                  control={form.control}
+                  name="schedulingNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Scheduling Notes</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="Scheduling-specific notes..." className="min-h-[100px]" {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
               </AccordionContent>
             </AccordionItem>
 
-            {/* Logistics & Risk */}
+            {/* Logistics & Food Safety */}
             <AccordionItem value="logistics" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg">3. Logistics & Risk Assessment</span>
+                  <span className="font-semibold text-lg">3. Logistics & Food Safety</span>
                   {(showFridgeWarning || showIndoorWarning) && (
                     <Badge variant="destructive" className="ml-2">Risks Detected</Badge>
                   )}
@@ -671,15 +698,15 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                         </FormControl>
                         <div className="space-y-1 leading-none">
                           <FormLabel>
-                            Venue has dedicated indoor space?
+                            Event is taking place indoors?
                           </FormLabel>
                           <FormDescription>
-                            Sandwiches cannot be left in direct sunlight or outdoors.
+                            Under no circumstances can sandwiches be made outdoors.
                           </FormDescription>
                           {!field.value && (
                              <p className="text-destructive text-sm font-medium mt-2 flex items-center">
                               <AlertTriangle className="h-3 w-3 mr-1" />
-                              Risk: No Indoor Space
+                              CRITICAL: Sandwiches cannot be made outdoors
                             </p>
                           )}
                         </div>
@@ -687,36 +714,14 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                     )}
                   />
 
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                     <FormField
-                      control={form.control}
-                      name="requiresRefrigeration"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel>
-                              Requires Refrigeration?
-                            </FormLabel>
-                            <FormDescription>
-                              Deli meats/cheese
-                            </FormDescription>
-                          </div>
-                        </FormItem>
-                      )}
-                    />
+                  {isDeli && (
                     <FormField
                       control={form.control}
-                      name="hasRefrigeration"
+                      name="refrigerationConfirmed"
                       render={({ field }) => (
                         <FormItem className={cn(
                           "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4",
-                          showFridgeWarning && "border-destructive bg-destructive/5"
+                          !field.value && "border-destructive bg-destructive/5"
                         )}>
                           <FormControl>
                             <Checkbox
@@ -725,23 +730,23 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                             />
                           </FormControl>
                           <div className="space-y-1 leading-none">
-                            <FormLabel className={cn(showFridgeWarning && "text-destructive")}>
-                              Venue has refrigeration?
+                            <FormLabel className={cn(!field.value && "text-destructive")}>
+                              Refrigeration Confirmed
                             </FormLabel>
-                            <FormDescription>
-                              Available for sandwich storage
+                            <FormDescription className="text-sm leading-relaxed mt-1">
+                              Have you confirmed with the contact that they have access to refrigeration on the day of the event, that it has enough space for the {sandwichCount || '___'} sandwiches they are making, and that the contact has been educated on the importance of: refrigeration of ingredients up until sandwich making, taking out ingredients in batches (only enough for each group to make 1 loaf at a time) to minimize ingredients being unrefrigerated, and that sandwich loaves must go back into the refrigerator once assembled to cool before going into coolers?
                             </FormDescription>
-                             {showFridgeWarning && (
-                             <p className="text-destructive text-sm font-bold mt-2 flex items-center">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              CRITICAL: Fridge required but not available
-                            </p>
-                          )}
+                            {!field.value && (
+                              <p className="text-destructive text-sm font-bold mt-2 flex items-center">
+                                <AlertTriangle className="h-3 w-3 mr-1" />
+                                CRITICAL: Refrigeration must be confirmed for deli meat sandwiches
+                              </p>
+                            )}
                           </div>
                         </FormItem>
                       )}
                     />
-                  </div>
+                  )}
                 </div>
 
                 <FormField
@@ -749,9 +754,25 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                   name="deliveryInstructions"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Delivery Instructions / Parking</FormLabel>
+                      <FormLabel>Instructions for Drivers, Speakers, Volunteers</FormLabel>
+                      <FormDescription>
+                        Collected from the contact at the organization to help our people get where they need to go on the day of the event. Share with anyone assigned to this event.
+                      </FormDescription>
                       <FormControl>
-                        <Textarea placeholder="Loading dock location, parking info, etc." {...field} />
+                        <Textarea placeholder="Parking instructions, building entry, where to go on arrival, who to ask for..." {...field} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="planningNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Planning Notes</FormLabel>
+                      <FormControl>
+                        <Textarea placeholder="General planning notes..." className="min-h-[100px]" {...field} />
                       </FormControl>
                     </FormItem>
                   )}
@@ -777,32 +798,6 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'No Fridg
                     </FormItem>
                   )}
                 />
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <FormField
-                    control={form.control}
-                    name="planningNotes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Planning Notes</FormLabel>
-                        <FormControl>
-                          <Textarea placeholder="General planning notes..." className="min-h-[100px]" {...field} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="schedulingNotes"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Scheduling Notes</FormLabel>
-                        <FormControl>
-                          <Textarea placeholder="Scheduling-specific notes..." className="min-h-[100px]" {...field} />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                </div>
                 <FormField
                   control={form.control}
                   name="internalNotes"

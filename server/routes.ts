@@ -583,8 +583,8 @@ export async function registerRoutes(
       // Calculate flags
       const flags: string[] = [];
       const updated = { ...existing, ...validated };
-      if (!updated.hasIndoorSpace) flags.push('No Indoor Space');
-      if (updated.requiresRefrigeration && !updated.hasRefrigeration) flags.push('Fridge Risk');
+      if (!updated.hasIndoorSpace) flags.push('Not Indoors');
+      if (updated.requiresRefrigeration && !updated.refrigerationConfirmed) flags.push('Refrigeration Not Confirmed');
       if (updated.sandwichCount >= 400) flags.push('High Volume (Rep Req)');
       
       const record = await storage.updateIntakeRecord(req.params.id, {
