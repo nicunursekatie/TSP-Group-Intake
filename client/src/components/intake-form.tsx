@@ -691,7 +691,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   </div>
 
                   <div>
-                    <FormLabel className="mb-2 block">Sandwiches Planned</FormLabel>
+                    <label className="text-sm font-medium mb-2 block">Sandwiches Planned</label>
                     <div className="space-y-2">
                       {sandwichPlan.map((entry: SandwichPlanEntry, index: number) => (
                         <div key={index} className="flex items-center gap-2">
