@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
@@ -31,12 +31,27 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare } from "lucide-react";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { ContactLogDialog } from "./contact-log-dialog";
+
+type SandwichPlanEntry = { type: string; count: number };
+
+function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCount: number): SandwichPlanEntry[] {
+  if (sandwichType) {
+    try {
+      const parsed = JSON.parse(sandwichType);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      // Legacy single-type format (e.g. "turkey")
+      return [{ type: sandwichType, count: sandwichCount }];
+    }
+  }
+  return [{ type: '', count: sandwichCount || 0 }];
+}
 
 const intakeSchema = z.object({
   organizationName: z.string().min(1, "Required"),
@@ -84,6 +99,43 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const [lastSaved, setLastSaved] = useState<Date | null>(null);
   const [contactLogOpen, setContactLogOpen] = useState(false);
   const queryClient = useQueryClient();
+
+  // Multi-type sandwich planning
+  const [sandwichPlan, setSandwichPlan] = useState<SandwichPlanEntry[]>(() =>
+    parseSandwichPlan(intake.sandwichType, intake.sandwichCount)
+  );
+  const sandwichPlanInitial = useRef(true);
+
+  const updateSandwichPlan = (newPlan: SandwichPlanEntry[]) => {
+    setSandwichPlan(newPlan);
+  };
+
+  // Sync sandwich plan → form fields + debounced autosave
+  useEffect(() => {
+    const total = sandwichPlan.reduce((sum: number, e: SandwichPlanEntry) => sum + (e.count || 0), 0);
+    const typeJson = JSON.stringify(sandwichPlan);
+    form.setValue("sandwichCount", total);
+    form.setValue("sandwichType", typeJson);
+
+    if (sandwichPlanInitial.current) {
+      sandwichPlanInitial.current = false;
+      return;
+    }
+
+    const timeoutId = setTimeout(() => {
+      updateMutation.mutate(
+        { id: intake.id, data: { sandwichCount: total, sandwichType: typeJson } },
+        {
+          onSuccess: () => {
+            setLastSaved(new Date());
+            queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+          }
+        }
+      );
+    }, 1000);
+
+    return () => clearTimeout(timeoutId);
+  }, [sandwichPlan]);
 
   const handleMarkScheduled = () => {
     // First update local status to Scheduled
@@ -194,20 +246,19 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
 
   // Derived flags for UI warnings
   const sandwichCount = form.watch("sandwichCount");
-  const sandwichType = form.watch("sandwichType");
   const requiresFridge = form.watch("requiresRefrigeration");
   const hasIndoor = form.watch("hasIndoorSpace");
   const refrigerationConfirmed = form.watch("refrigerationConfirmed");
 
-  // Auto-set requiresRefrigeration based on sandwich type (deli meats need fridge)
-  const isDeli = sandwichType === 'turkey' || sandwichType === 'ham' || sandwichType === 'chicken';
+  // Auto-set requiresRefrigeration based on sandwich types (deli meats need fridge)
+  const isDeli = sandwichPlan.some((e: SandwichPlanEntry) => e.type === 'turkey' || e.type === 'ham' || e.type === 'chicken');
   useEffect(() => {
     if (isDeli && !requiresFridge) {
       form.setValue("requiresRefrigeration", true, { shouldDirty: true });
-    } else if (!isDeli && sandwichType && requiresFridge) {
+    } else if (!isDeli && sandwichPlan.some((e: SandwichPlanEntry) => e.type) && requiresFridge) {
       form.setValue("requiresRefrigeration", false, { shouldDirty: true });
     }
-  }, [sandwichType, isDeli, requiresFridge, form]);
+  }, [sandwichPlan, isDeli, requiresFridge, form]);
 
   const showVolumeWarning = sandwichCount >= 400;
   const showFridgeWarning = requiresFridge && !refrigerationConfirmed;
@@ -221,7 +272,7 @@ Org: ${v.organizationName}
 Contact: ${v.contactName} (${v.contactEmail})
 Event: ${v.eventDate} @ ${v.eventTime}
 Loc: ${v.location}
-Counts: ${v.attendeeCount} ppl / ${v.sandwichCount} sandwiches (${v.sandwichType || 'type TBD'})
+Counts: ${v.attendeeCount} ppl / ${sandwichPlan.filter((e: SandwichPlanEntry) => e.count > 0).map((e: SandwichPlanEntry) => `${e.count} ${e.type || 'TBD'}`).join(', ') || 'TBD'}
 Dietary: ${v.dietaryRestrictions || 'None'}
 Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refrigeration Not Confirmed' : ''} ${showIndoorWarning ? 'Not Indoors' : ''}
     `.trim();
@@ -588,12 +639,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                 
                 <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
                   <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Quantities & Type</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-6">
+                  <div className="mb-4">
                     <FormField
                       control={form.control}
                       name="attendeeCount"
                       render={({ field }) => (
-                        <FormItem>
+                        <FormItem className="max-w-[200px]">
                           <FormLabel>Total Attendees</FormLabel>
                           <FormControl>
                             <Input type="number" {...field} className="h-12 text-lg font-mono" />
@@ -601,36 +652,24 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="sandwichCount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Sandwiches Needed</FormLabel>
-                          <FormControl>
-                            <Input type="number" {...field} className="h-12 text-lg font-mono font-bold text-primary" />
-                          </FormControl>
-                          {showVolumeWarning && (
-                            <p className="text-destructive text-sm font-medium flex items-center mt-1">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              Over 400: Requires TSP Rep
-                            </p>
-                          )}
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="sandwichType"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Sandwich Type</FormLabel>
-                          <Select onValueChange={field.onChange} defaultValue={field.value}>
-                            <FormControl>
-                              <SelectTrigger className="h-12">
-                                <SelectValue placeholder="Select type" />
-                              </SelectTrigger>
-                            </FormControl>
+                  </div>
+
+                  <div>
+                    <FormLabel className="mb-2 block">Sandwiches Planned</FormLabel>
+                    <div className="space-y-2">
+                      {sandwichPlan.map((entry: SandwichPlanEntry, index: number) => (
+                        <div key={index} className="flex items-center gap-2">
+                          <Select
+                            value={entry.type}
+                            onValueChange={(val: string) => {
+                              const newPlan = [...sandwichPlan];
+                              newPlan[index] = { ...newPlan[index], type: val };
+                              updateSandwichPlan(newPlan);
+                            }}
+                          >
+                            <SelectTrigger className="h-10 w-[160px]">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
                             <SelectContent>
                               <SelectItem value="turkey">Turkey</SelectItem>
                               <SelectItem value="ham">Ham</SelectItem>
@@ -638,9 +677,53 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                               <SelectItem value="pbj">PBJ</SelectItem>
                             </SelectContent>
                           </Select>
-                        </FormItem>
-                      )}
-                    />
+                          <Input
+                            type="number"
+                            value={entry.count || ''}
+                            onChange={(e: any) => {
+                              const newPlan = [...sandwichPlan];
+                              newPlan[index] = { ...newPlan[index], count: parseInt(e.target.value) || 0 };
+                              updateSandwichPlan(newPlan);
+                            }}
+                            placeholder="# sandwiches"
+                            className="h-10 w-[140px] font-mono font-bold text-primary"
+                          />
+                          {sandwichPlan.length > 1 && (
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="icon"
+                              className="h-10 w-10 shrink-0"
+                              onClick={() => updateSandwichPlan(sandwichPlan.filter((_: SandwichPlanEntry, i: number) => i !== index))}
+                            >
+                              <X className="h-4 w-4" />
+                            </Button>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="mt-2"
+                      onClick={() => updateSandwichPlan([...sandwichPlan, { type: '', count: 0 }])}
+                    >
+                      <Plus className="h-3 w-3 mr-1" /> Add Type
+                    </Button>
+
+                    {sandwichPlan.length > 1 && (
+                      <p className="text-sm text-muted-foreground mt-2">
+                        Total: <span className="font-mono font-bold text-primary">{sandwichPlan.reduce((s: number, e: SandwichPlanEntry) => s + (e.count || 0), 0)}</span> sandwiches
+                      </p>
+                    )}
+
+                    {showVolumeWarning && (
+                      <p className="text-destructive text-sm font-medium flex items-center mt-1">
+                        <AlertTriangle className="h-3 w-3 mr-1" />
+                        Over 400: Requires TSP Rep
+                      </p>
+                    )}
                   </div>
                 </div>
 
