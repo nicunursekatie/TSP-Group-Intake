@@ -83,6 +83,7 @@ const intakeSchema = z.object({
   hasRefrigeration: z.boolean(),
   refrigerationConfirmed: z.boolean(),
   pickupTimeWindow: z.string().optional(),
+  nextDayPickup: z.boolean(),
   deliveryInstructions: z.string().optional(),
   status: z.string(),
   planningNotes: z.string().optional(),
@@ -196,6 +197,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       hasRefrigeration: intake.hasRefrigeration,
       refrigerationConfirmed: intake.refrigerationConfirmed ?? false,
       pickupTimeWindow: intake.pickupTimeWindow || "",
+      nextDayPickup: intake.nextDayPickup ?? false,
       deliveryInstructions: intake.deliveryInstructions || "",
       status: intake.status,
       planningNotes: intake.planningNotes || "",
@@ -249,16 +251,17 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const requiresFridge = form.watch("requiresRefrigeration");
   const hasIndoor = form.watch("hasIndoorSpace");
   const refrigerationConfirmed = form.watch("refrigerationConfirmed");
+  const nextDayPickup = form.watch("nextDayPickup");
 
-  // Auto-set requiresRefrigeration based on sandwich types (deli meats need fridge)
+  // Auto-set requiresRefrigeration based on sandwich types (deli meats need fridge) or next-day pickup
   const isDeli = sandwichPlan.some((e: SandwichPlanEntry) => e.type === 'turkey' || e.type === 'ham' || e.type === 'chicken');
   useEffect(() => {
-    if (isDeli && !requiresFridge) {
+    if ((isDeli || nextDayPickup) && !requiresFridge) {
       form.setValue("requiresRefrigeration", true, { shouldDirty: true });
-    } else if (!isDeli && sandwichPlan.some((e: SandwichPlanEntry) => e.type) && requiresFridge) {
+    } else if (!isDeli && !nextDayPickup && sandwichPlan.some((e: SandwichPlanEntry) => e.type) && requiresFridge) {
       form.setValue("requiresRefrigeration", false, { shouldDirty: true });
     }
-  }, [sandwichPlan, isDeli, requiresFridge, form]);
+  }, [sandwichPlan, isDeli, nextDayPickup, requiresFridge, form]);
 
   const showVolumeWarning = sandwichCount >= 400;
   const showFridgeWarning = requiresFridge && !refrigerationConfirmed;
@@ -628,14 +631,47 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="pickupTimeWindow"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Pickup Window</FormLabel>
+                        <FormLabel>Pickup Time</FormLabel>
                         <FormControl>
-                          <Input placeholder="e.g. 2:00 - 3:00 PM" {...field} />
+                          <Input placeholder="e.g. 2:00 PM" {...field} />
                         </FormControl>
+                        <FormDescription className="text-xs">
+                          Time the driver will pick up sandwiches (may be same as event end time)
+                        </FormDescription>
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="nextDayPickup"
+                    render={({ field }) => (
+                      <FormItem className="flex items-start space-x-2 space-y-0 pt-2">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div>
+                          <FormLabel className="text-sm font-medium cursor-pointer">
+                            Next-day pickup
+                          </FormLabel>
+                          <FormDescription className="text-xs">
+                            Sandwiches held overnight — driver picks up the following day
+                          </FormDescription>
+                        </div>
                       </FormItem>
                     )}
                   />
                 </div>
+                {nextDayPickup && (
+                  <div className="flex items-start gap-2 p-3 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 rounded-md text-sm">
+                    <AlertTriangle className="h-4 w-4 text-amber-600 shrink-0 mt-0.5" />
+                    <span className="text-amber-800 dark:text-amber-200">
+                      Next-day pickup requires confirmed refrigeration for overnight storage.
+                    </span>
+                  </div>
+                )}
                 
                 <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
                   <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Quantities & Type</h4>

@@ -75,6 +75,7 @@ export interface IntakeRecord {
   hasRefrigeration: boolean;
   refrigerationConfirmed: boolean;
   pickupTimeWindow?: string | null;
+  nextDayPickup: boolean;
   deliveryInstructions: string;
 
   // Status & Assignment
