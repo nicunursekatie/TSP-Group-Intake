@@ -708,7 +708,7 @@ export async function registerRoutes(
             eq(eventRequests.tspContactAssigned, currentUser.platformUserId),
             eq(eventRequests.tspContact, currentUser.platformUserId)
           ),
-          inArray(eventRequests.status, ['new', 'in_process', 'scheduled'])
+          inArray(eventRequests.status, ['new', 'in_process', 'scheduled', 'completed'])
         ));
 
       console.log(`Sync pull: Found ${events.length} event requests in DB`);
