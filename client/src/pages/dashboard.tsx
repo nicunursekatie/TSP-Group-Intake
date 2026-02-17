@@ -34,7 +34,27 @@ import { toast } from "sonner";
 
 type IntakeStatus = 'New' | 'In Process' | 'Scheduled' | 'Completed';
 type SortDirection = 'asc' | 'desc' | null;
-type SortColumn = 'status' | 'organizationName' | 'eventDate' | 'attendeeCount' | null;
+type SortColumn = 'status' | 'organizationName' | 'eventDate' | 'attendeeCount' | 'sandwichCount' | null;
+
+type SandwichPlanEntry = { type: string; count: number };
+
+function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCount: number): SandwichPlanEntry[] {
+  if (sandwichType) {
+    try {
+      const parsed = JSON.parse(sandwichType);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {
+      return [{ type: sandwichType, count: sandwichCount }];
+    }
+  }
+  return sandwichCount > 0 ? [{ type: '', count: sandwichCount }] : [];
+}
+
+function formatSandwichSummary(plan: SandwichPlanEntry[]): string {
+  const withCount = plan.filter(e => e.count > 0);
+  if (withCount.length === 0) return '-';
+  return withCount.map(e => `${e.count} ${e.type || 'TBD'}`).join(', ');
+}
 
 const STATUS_ORDER: Record<string, number> = {
   'New': 0,
@@ -110,6 +130,9 @@ export default function Dashboard() {
           }
           case 'attendeeCount':
             cmp = (a.attendeeCount || 0) - (b.attendeeCount || 0);
+            break;
+          case 'sandwichCount':
+            cmp = (a.sandwichCount || 0) - (b.sandwichCount || 0);
             break;
         }
         return sortDirection === 'desc' ? -cmp : cmp;
@@ -211,6 +234,11 @@ export default function Dashboard() {
                   Attendees <SortIcon column="attendeeCount" />
                 </button>
               </TableHead>
+              <TableHead>
+                <button onClick={() => handleSort('sandwichCount')} className="flex items-center hover:text-primary transition-colors">
+                  Sandwiches <SortIcon column="sandwichCount" />
+                </button>
+              </TableHead>
               <TableHead className="w-[200px]">Flags</TableHead>
               <TableHead className="w-[100px]"></TableHead>
             </TableRow>
@@ -218,7 +246,7 @@ export default function Dashboard() {
           <TableBody>
             {filteredRecords.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={6} className="h-32 text-center text-muted-foreground">
+                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
                   No records found. Create a new intake to get started.
                 </TableCell>
               </TableRow>
@@ -247,6 +275,21 @@ export default function Dashboard() {
                   </TableCell>
                   <TableCell className="text-right font-mono">
                     {record.attendeeCount}
+                  </TableCell>
+                  <TableCell>
+                    {(() => {
+                      const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
+                      const summary = formatSandwichSummary(plan);
+                      if (summary === '-') return <span className="text-muted-foreground text-xs">-</span>;
+                      return (
+                        <div className="text-sm">
+                          <span className="font-mono font-bold text-primary">{record.sandwichCount}</span>
+                          <span className="text-muted-foreground ml-1.5">
+                            {plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ') || ''}
+                          </span>
+                        </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <div className="flex flex-wrap gap-1">

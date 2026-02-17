@@ -798,20 +798,43 @@ export async function registerRoutes(
         };
 
         if (existing) {
-          // Update fields from platform (keeps local-only fields like flags, internalNotes)
+          // Timestamp-aware merge: compare platform vs local updatedAt
           const statusRank: Record<string, number> = { 'New': 0, 'In Process': 1, 'Scheduled': 2, 'Completed': 3 };
           const platformRank = statusRank[localStatus] ?? 0;
           const localRank = statusRank[existing.status] ?? 0;
 
-          // Build update with all synced fields except status (only advance status)
-          const updates: any = { ...recordData };
-          delete updates.externalEventId; // don't change the link
-          if (platformRank <= localRank) {
-            delete updates.status; // don't regress status
+          const platformUpdated = event.updatedAt ? new Date(event.updatedAt) : new Date(0);
+          const localUpdated = new Date(existing.updatedAt);
+          const platformIsNewer = platformUpdated > localUpdated;
+
+          // Build update — only include fields that actually differ
+          const updates: any = {};
+
+          // Status: always allow advancement, never regress
+          if (platformRank > localRank) {
+            updates.status = localStatus;
           }
 
-          await storage.updateIntakeRecord(existing.id, updates);
-          updatedCount++;
+          // Shared fields: only overwrite local if platform is newer
+          if (platformIsNewer) {
+            const sharedFieldMap: Record<string, any> = { ...recordData };
+            delete sharedFieldMap.externalEventId;
+            delete sharedFieldMap.status; // handled separately above
+
+            for (const [key, platformValue] of Object.entries(sharedFieldMap)) {
+              const localValue = (existing as any)[key];
+              const pStr = platformValue == null ? '' : String(platformValue);
+              const lStr = localValue == null ? '' : String(localValue);
+              if (pStr !== lStr) {
+                updates[key] = platformValue;
+              }
+            }
+          }
+
+          if (Object.keys(updates).length > 0) {
+            await storage.updateIntakeRecord(existing.id, updates);
+            updatedCount++;
+          }
         } else {
           // New record — import it
           await storage.createIntakeRecord({
@@ -853,6 +876,7 @@ export async function registerRoutes(
   });
 
   // Platform Sync - Push intake data back to main platform (direct DB update)
+  // Only sends fields that changed; respects platform's updatedAt to avoid overwriting fresher data
   app.post("/api/sync/push/:id", isAuthenticated, isApproved, async (req, res) => {
     try {
       const record = await storage.getIntakeRecord(req.params.id);
@@ -874,6 +898,17 @@ export async function registerRoutes(
       const eventId = parseInt(record.externalEventId);
       console.log(`Sync push (direct DB): Updating event_requests id=${eventId}`);
 
+      // Fetch current platform record to compare timestamps and values
+      const [platformRecord] = await db.select().from(eventRequests)
+        .where(eq(eventRequests.id, eventId)).limit(1);
+
+      if (!platformRecord) {
+        return res.status(404).json({ error: "Platform record no longer exists" });
+      }
+
+      const localUpdated = new Date(record.updatedAt);
+      const platformUpdated = platformRecord.updatedAt ? new Date(platformRecord.updatedAt) : new Date(0);
+
       // Map intake status back to platform status
       const statusMap: Record<string, string> = {
         'Scheduled': 'scheduled',
@@ -882,39 +917,75 @@ export async function registerRoutes(
         'New': 'new',
       };
 
-      // Write directly to the main platform's event_requests table
+      // Build what we WOULD send, then diff against what's already on the platform
+      const candidateFields: Record<string, any> = {
+        status: statusMap[record.status] || 'in_process',
+        organizationName: record.organizationName,
+        organizationCategory: record.organizationCategory,
+        department: record.department,
+        firstName: record.contactFirstName,
+        lastName: record.contactLastName,
+        email: record.contactEmail,
+        phone: record.contactPhone,
+        backupContactFirstName: record.backupContactFirstName,
+        backupContactLastName: record.backupContactLastName,
+        backupContactEmail: record.backupContactEmail,
+        backupContactPhone: record.backupContactPhone,
+        backupContactRole: record.backupContactRole,
+        scheduledEventDate: record.scheduledEventDate || record.eventDate,
+        desiredEventDate: record.desiredEventDate,
+        dateFlexible: record.dateFlexible,
+        eventStartTime: record.eventStartTime,
+        eventEndTime: record.eventEndTime,
+        eventAddress: record.eventAddress || record.location,
+        volunteerCount: record.volunteerCount || record.attendeeCount,
+        estimatedSandwichCount: record.sandwichCount,
+        actualSandwichCount: record.actualSandwichCount,
+        message: record.message,
+        hasRefrigeration: record.hasRefrigeration,
+        pickupTimeWindow: record.pickupTimeWindow,
+        planningNotes: record.planningNotes,
+        schedulingNotes: record.schedulingNotes,
+        nextAction: record.nextAction,
+        contactAttempts: record.contactAttempts,
+      };
+
+      // Only send fields that actually differ from what's on the platform
+      const changedFields: Record<string, any> = {};
+      for (const [key, intakeValue] of Object.entries(candidateFields)) {
+        const platformValue = (platformRecord as any)[key];
+        // Compare stringified to handle Date/null/undefined differences
+        const intakeStr = intakeValue == null ? '' : String(intakeValue);
+        const platformStr = platformValue == null ? '' : String(platformValue);
+        if (intakeStr !== platformStr) {
+          changedFields[key] = intakeValue;
+        }
+      }
+
+      // If the platform was updated more recently, only push status advances and intake-specific fields
+      // (fields the platform doesn't manage itself, like contactAttempts, notes, status)
+      const intakeOnlyFields = ['status', 'planningNotes', 'schedulingNotes', 'nextAction', 'contactAttempts', 'actualSandwichCount'];
+      if (platformUpdated > localUpdated) {
+        console.log(`Sync push: Platform is newer (${platformUpdated.toISOString()} > ${localUpdated.toISOString()}), limiting push to intake-managed fields`);
+        for (const key of Object.keys(changedFields)) {
+          if (!intakeOnlyFields.includes(key)) {
+            delete changedFields[key];
+          }
+        }
+      }
+
+      if (Object.keys(changedFields).length === 0) {
+        console.log(`Sync push: No changes to send for event_requests id=${eventId}`);
+        return res.json({ success: true, message: "Already up to date — no changes to push", fieldsUpdated: 0 });
+      }
+
+      // Always update the timestamp when we push
+      changedFields.updatedAt = new Date();
+
+      console.log(`Sync push: Updating ${Object.keys(changedFields).length} fields: ${Object.keys(changedFields).join(', ')}`);
+
       await db.update(eventRequests)
-        .set({
-          status: statusMap[record.status] || 'in_process',
-          organizationName: record.organizationName,
-          organizationCategory: record.organizationCategory,
-          department: record.department,
-          firstName: record.contactFirstName,
-          lastName: record.contactLastName,
-          email: record.contactEmail,
-          phone: record.contactPhone,
-          backupContactFirstName: record.backupContactFirstName,
-          backupContactLastName: record.backupContactLastName,
-          backupContactEmail: record.backupContactEmail,
-          backupContactPhone: record.backupContactPhone,
-          backupContactRole: record.backupContactRole,
-          scheduledEventDate: record.scheduledEventDate || record.eventDate,
-          desiredEventDate: record.desiredEventDate,
-          dateFlexible: record.dateFlexible,
-          eventStartTime: record.eventStartTime,
-          eventEndTime: record.eventEndTime,
-          eventAddress: record.eventAddress || record.location,
-          volunteerCount: record.volunteerCount || record.attendeeCount,
-          estimatedSandwichCount: record.sandwichCount,
-          actualSandwichCount: record.actualSandwichCount,
-          message: record.message,
-          hasRefrigeration: record.hasRefrigeration,
-          pickupTimeWindow: record.pickupTimeWindow,
-          planningNotes: record.planningNotes,
-          schedulingNotes: record.schedulingNotes,
-          nextAction: record.nextAction,
-          contactAttempts: record.contactAttempts,
-        })
+        .set(changedFields)
         .where(eq(eventRequests.id, eventId));
 
       await storage.createSyncLog({
@@ -924,7 +995,12 @@ export async function registerRoutes(
         error: null,
       });
 
-      res.json({ success: true, message: "Successfully synced to main platform (marked as scheduled)" });
+      res.json({
+        success: true,
+        message: `Synced ${Object.keys(changedFields).length} updated fields to platform`,
+        fieldsUpdated: Object.keys(changedFields).length,
+        fields: Object.keys(changedFields).filter(k => k !== 'updatedAt'),
+      });
     } catch (error: any) {
       console.error('Sync push error:', error);
       await storage.createSyncLog({
