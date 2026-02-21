@@ -31,7 +31,7 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X } from "lucide-react";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
@@ -155,6 +155,30 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
               toast.error(error.message || "Failed to sync to platform");
             },
           });
+        },
+      }
+    );
+  };
+
+  const handleMarkCompleted = () => {
+    updateMutation.mutate(
+      { id: intake.id, data: { status: 'Completed' } },
+      {
+        onSuccess: () => {
+          if (intake.externalEventId) {
+            pushMutation.mutate(intake.id, {
+              onSuccess: () => {
+                toast.success("Marked as completed and synced to platform");
+                queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+              },
+              onError: (error: any) => {
+                toast.error(error.message || "Failed to sync to platform");
+              },
+            });
+          } else {
+            toast.success("Marked as completed");
+            queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+          }
         },
       }
     );
@@ -310,14 +334,11 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="New">New</SelectItem>
-                  <SelectItem value="In Process">In Process</SelectItem>
+                  <SelectItem value="New" disabled={currentStatus !== "New"}>New</SelectItem>
+                  <SelectItem value="In Process" disabled={currentStatus === "Scheduled" || currentStatus === "Completed"}>In Process</SelectItem>
                   <SelectItem
                     value="Scheduled"
-                    disabled={
-                      currentStatus === "In Process" &&
-                      !isIntakeComplete()
-                    }
+                    disabled={currentStatus === "Completed"}
                   >
                     Scheduled
                   </SelectItem>
@@ -352,20 +373,39 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </Badge>
             )}
           </Button>
-          {intake.externalEventId && intake.status !== 'Scheduled' && intake.status !== 'Completed' && (
-            <Button
-              size="sm"
-              onClick={handleMarkScheduled}
-              disabled={pushMutation.isPending}
-              className="flex-1 sm:flex-none bg-teal-600 hover:bg-teal-700 text-white"
-            >
-              {pushMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Send className="h-4 w-4 mr-2" />
+          {intake.status !== 'Completed' && (
+            <>
+              {(intake.status === 'New' || intake.status === 'In Process') && intake.externalEventId && (
+                <Button
+                  size="sm"
+                  onClick={handleMarkScheduled}
+                  disabled={pushMutation.isPending || updateMutation.isPending}
+                  className="flex-1 sm:flex-none bg-teal-600 hover:bg-teal-700 text-white"
+                >
+                  {pushMutation.isPending ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <Send className="h-4 w-4 mr-2" />
+                  )}
+                  Mark Scheduled
+                </Button>
               )}
-              Mark Scheduled
-            </Button>
+              {intake.status === 'Scheduled' && (
+                <Button
+                  size="sm"
+                  onClick={handleMarkCompleted}
+                  disabled={pushMutation.isPending || updateMutation.isPending}
+                  className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white"
+                >
+                  {(pushMutation.isPending || updateMutation.isPending) ? (
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-4 w-4 mr-2" />
+                  )}
+                  Mark Completed
+                </Button>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -996,6 +1036,86 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                           className="min-h-[150px]"
                           {...field}
                         />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              </AccordionContent>
+            </AccordionItem>
+
+            {/* Section 5: Post-Event Follow-Up */}
+            <AccordionItem
+              value="followup"
+              className={cn(
+                "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
+                currentStatus !== "Completed" && "opacity-70"
+              )}
+            >
+              <AccordionTrigger className="hover:no-underline py-4">
+                <div className="flex items-center gap-2">
+                  <span className="font-semibold text-lg">5. Post-Event Follow-Up</span>
+                  {currentStatus !== "Completed" && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      Available after Completed
+                    </Badge>
+                  )}
+                </div>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-6 space-y-6">
+                <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  Call the group within 24 hours of the event. Record actual counts, gather feedback, and request photos.
+                </p>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="actualSandwichCount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Actual Sandwiches Made</FormLabel>
+                        <FormDescription className="text-xs">
+                          How many sandwiches did the group actually make?
+                        </FormDescription>
+                        <FormControl>
+                          <Input
+                            type="number"
+                            placeholder="0"
+                            {...field}
+                            value={field.value ?? ''}
+                            className="h-12 text-lg font-mono font-bold text-primary"
+                          />
+                        </FormControl>
+                        {form.watch("sandwichCount") > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            Originally planned: <span className="font-mono">{form.watch("sandwichCount")}</span>
+                          </p>
+                        )}
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                <div className="p-4 bg-blue-50 dark:bg-blue-950/30 rounded-lg border border-blue-200 dark:border-blue-800 space-y-3">
+                  <div className="flex items-center gap-2">
+                    <Camera className="h-4 w-4 text-blue-600" />
+                    <h4 className="font-medium text-blue-900 dark:text-blue-200 text-sm">Photos & Videos</h4>
+                  </div>
+                  <p className="text-sm text-blue-800 dark:text-blue-300">
+                    Remind the contact to send photos and videos to <span className="font-medium">photos@thesandwichproject.org</span> — include names and Instagram handles for tagging.
+                  </p>
+                </div>
+
+                <FormField
+                  control={form.control}
+                  name="planningNotes"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>How Did It Go?</FormLabel>
+                      <FormDescription>
+                        Record feedback from the follow-up call — what went well, any issues, would they do it again?
+                      </FormDescription>
+                      <FormControl>
+                        <Textarea placeholder="The group said..." className="min-h-[100px]" {...field} />
                       </FormControl>
                     </FormItem>
                   )}
