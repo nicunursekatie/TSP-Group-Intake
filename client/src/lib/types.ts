@@ -167,8 +167,16 @@ export const AUDIENCE_LABELS: Record<string, string> = {
   contact: 'Contact',
 };
 
+/** Post-event follow-up checklist: shown when status is Completed. */
+export const POST_EVENT_CHECKLIST_ITEMS: ChecklistItemDef[] = [
+  { key: 'followup_call', label: 'Follow-up call placed within 24 hours', group: 'post_event' },
+  { key: 'actual_count_recorded', label: 'Actual sandwich count recorded', group: 'post_event', derivedFrom: (r) => r.actualSandwichCount != null && r.actualSandwichCount > 0, showAutoTag: true },
+  { key: 'photos_requested', label: 'Photos/videos requested (photos@thesandwichproject.org)', group: 'post_event' },
+  { key: 'feedback_recorded', label: 'Event feedback recorded', group: 'post_event' },
+];
+
 /** All checklist items (for backwards compatibility / completed view). */
-export const CHECKLIST_ITEMS: ChecklistItemDef[] = [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS];
+export const CHECKLIST_ITEMS: ChecklistItemDef[] = [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS, ...POST_EVENT_CHECKLIST_ITEMS];
 
 export const DAY_OF_GROUP_LABELS: Record<string, string> = {
   food_safety: 'Food Safety & Purchasing',
@@ -176,6 +184,36 @@ export const DAY_OF_GROUP_LABELS: Record<string, string> = {
   packaging: 'Packaging & Transport',
   follow_up: 'Follow-up',
 };
+
+export const POST_EVENT_GROUP_LABELS: Record<string, string> = {
+  post_event: 'Post-Event Follow-Up',
+};
+
+/** Returns true if the sandwich plan includes any deli meat types requiring refrigeration. */
+export function hasDeli(record: IntakeRecord): boolean {
+  if (!record.sandwichType) return false;
+  try {
+    const parsed = JSON.parse(record.sandwichType);
+    if (Array.isArray(parsed)) {
+      return parsed.some((e: { type: string }) => e.type === 'turkey' || e.type === 'ham' || e.type === 'chicken');
+    }
+  } catch {
+    // Legacy single-type format
+    return record.sandwichType === 'turkey' || record.sandwichType === 'ham' || record.sandwichType === 'chicken';
+  }
+  return false;
+}
+
+/** Key intake fields that should be populated before scheduling. */
+export const CRITICAL_INTAKE_FIELDS: { key: string; label: string; check: (r: IntakeRecord) => boolean }[] = [
+  { key: 'eventDate', label: 'Event date', check: (r) => !!r.eventDate },
+  { key: 'location', label: 'Location', check: (r) => !!(r.eventAddress || r.location) },
+  { key: 'contactEmail', label: 'Contact email', check: (r) => !!r.contactEmail },
+  { key: 'contactPhone', label: 'Contact phone', check: (r) => !!r.contactPhone },
+  { key: 'sandwichType', label: 'Sandwich type', check: (r) => !!r.sandwichType },
+  { key: 'sandwichCount', label: 'Sandwich count', check: (r) => r.sandwichCount > 0 },
+  { key: 'refrigeration', label: 'Refrigeration', check: (r) => !hasDeli(r) || r.refrigerationConfirmed },
+];
 
 // Initial seed data for the store
 export const MOCK_USERS: User[] = [

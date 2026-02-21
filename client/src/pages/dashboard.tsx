@@ -1,6 +1,6 @@
 import { useState, useMemo } from "react";
 import { Link } from "wouter";
-import { format } from "date-fns";
+import { format, differenceInDays } from "date-fns";
 import {
   Table,
   TableBody,
@@ -292,17 +292,55 @@ export default function Dashboard() {
                     })()}
                   </TableCell>
                   <TableCell>
-                    <div className="flex flex-wrap gap-1">
-                      {Array.isArray(record.flags) && record.flags.length > 0 ? (
-                        record.flags.map((flag, i) => (
-                          <Badge key={i} variant="destructive" className="text-[10px] px-1 py-0 h-5">
-                             {flag}
-                          </Badge>
-                        ))
+                    {(() => {
+                      const storedFlags = Array.isArray(record.flags) ? record.flags : [];
+                      // Auto-compute attention flags
+                      const autoFlags: { label: string; variant: 'destructive' | 'warning' }[] = [];
+
+                      if (record.status !== 'Completed') {
+                        // Upcoming events (within 14 days) with missing critical fields
+                        if (record.eventDate) {
+                          const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
+                          if (daysUntil >= 0 && daysUntil <= 14) {
+                            const missingFields: string[] = [];
+                            if (!record.sandwichType) missingFields.push('type');
+                            if (record.sandwichCount <= 0) missingFields.push('count');
+                            if (!record.eventAddress && !record.location) missingFields.push('location');
+                            if (missingFields.length > 0) {
+                              autoFlags.push({ label: `Needs: ${missingFields.join(', ')}`, variant: 'warning' });
+                            }
+                            if (daysUntil <= 3 && record.status === 'In Process') {
+                              autoFlags.push({ label: 'Not yet scheduled', variant: 'destructive' });
+                            }
+                          }
+                        }
+                      }
+
+                      const allFlags = [
+                        ...storedFlags.map(f => ({ label: f, variant: 'destructive' as const })),
+                        ...autoFlags,
+                      ];
+
+                      return allFlags.length > 0 ? (
+                        <div className="flex flex-wrap gap-1">
+                          {allFlags.map((flag, i) => (
+                            <Badge
+                              key={i}
+                              variant={flag.variant === 'warning' ? 'outline' : 'destructive'}
+                              className={`text-[10px] px-1 py-0 h-5 ${
+                                flag.variant === 'warning'
+                                  ? 'border-amber-300 bg-amber-50 text-amber-800'
+                                  : ''
+                              }`}
+                            >
+                              {flag.label}
+                            </Badge>
+                          ))}
+                        </div>
                       ) : (
                         <span className="text-muted-foreground text-xs">-</span>
-                      )}
-                    </div>
+                      );
+                    })()}
                   </TableCell>
                   <TableCell>
                     <Link href={`/intake/${record.id}`}>

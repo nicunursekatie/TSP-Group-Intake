@@ -14,12 +14,16 @@ import {
   Loader2,
   Phone,
   Send,
+  Info,
 } from "lucide-react";
 import {
   INTAKE_CHECKLIST_ITEMS,
   DAY_OF_CHECKLIST_ITEMS,
+  POST_EVENT_CHECKLIST_ITEMS,
   DAY_OF_GROUP_LABELS,
   AUDIENCE_LABELS,
+  CRITICAL_INTAKE_FIELDS,
+  hasDeli,
   type IntakeRecord,
   type IntakeStatus,
   type Task,
@@ -40,10 +44,10 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const pushMutation = usePushToPlatform();
   const queryClient = useQueryClient();
 
-  // Compute checklist state for intake and day-of items
+  // Compute checklist state for intake, day-of, and post-event items
   const checklistState = useMemo(() => {
     const state: Record<string, boolean> = {};
-    for (const item of [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS]) {
+    for (const item of [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS, ...POST_EVENT_CHECKLIST_ITEMS]) {
       if (item.derivedFrom) {
         state[item.key] = item.derivedFrom(intake);
       } else {
@@ -60,8 +64,10 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const dayOfCompleted = DAY_OF_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
   const dayOfTotal = DAY_OF_CHECKLIST_ITEMS.length;
 
+  const postEventCompleted = POST_EVENT_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
+  const postEventTotal = POST_EVENT_CHECKLIST_ITEMS.length;
+
   // Core intake fields required to transition In Process → Scheduled
-  // Note: hasIndoorSpace not gated (defaults true; shared DB with main platform — can't change)
   const isIntakeComplete = (): boolean => {
     const hasLocation = !!(intake.eventAddress || intake.location);
     const hasEventDate = !!intake.eventDate;
@@ -78,6 +84,9 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const eventPassed = daysUntilEvent !== null && daysUntilEvent < 0;
 
   const contactCount = intake.contactAttempts || 0;
+
+  // Check if record has deli types for refrigeration warnings
+  const recordHasDeli = hasDeli(intake);
 
   const handleChecklistToggle = (key: string, checked: boolean) => {
     const updated = { ...intake.intakeChecklist, [key]: checked };
@@ -99,7 +108,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
           toast.success(`Status updated to ${newStatus}`);
           queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
           // If scheduling and has external ID, push to platform
-          if (newStatus === 'Scheduled' && intake.externalEventId) {
+          if ((newStatus === 'Scheduled' || newStatus === 'Completed') && intake.externalEventId) {
             pushMutation.mutate(intake.id, {
               onSuccess: () => toast.success("Synced to platform"),
               onError: (err: any) => toast.error(err.message || "Failed to sync"),
@@ -123,6 +132,17 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const incompleteIntakeItems = INTAKE_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
   const incompleteDayOfItems = DAY_OF_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
 
+  // For "New" status: which critical fields are already filled vs missing
+  const criticalFieldStatus = useMemo(() => {
+    return CRITICAL_INTAKE_FIELDS.map(f => ({
+      ...f,
+      filled: f.check(intake),
+    }));
+  }, [intake]);
+
+  const filledCount = criticalFieldStatus.filter(f => f.filled).length;
+  const missingCount = criticalFieldStatus.filter(f => !f.filled).length;
+
   return (
     <ScrollArea className="h-full">
       <div className="p-4 space-y-5">
@@ -130,9 +150,11 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">
-              {intake.status === "Scheduled" || intake.status === "Completed"
-                ? "Workflow"
-                : "Intake Checklist"}
+              {intake.status === "Completed"
+                ? "Post-Event"
+                : intake.status === "Scheduled"
+                  ? "Workflow"
+                  : "Intake Checklist"}
             </h3>
             <Badge variant="outline" className="text-xs">
               {intake.status}
@@ -173,6 +195,36 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                   : `${contactCount} attempt(s) logged. Status will update to In Process.`}
               </p>
             </div>
+
+            {/* Data snapshot: what we already have vs what's missing */}
+            <div className="border-t pt-3 space-y-2">
+              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                <Info className="h-3 w-3" />
+                Data from request ({filledCount}/{criticalFieldStatus.length})
+              </div>
+              <div className="space-y-1">
+                {criticalFieldStatus.map(field => (
+                  <div key={field.key} className="flex items-center gap-2 text-sm py-0.5 px-2 rounded">
+                    {field.filled ? (
+                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
+                    ) : (
+                      <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
+                    )}
+                    <span className={field.filled ? "text-muted-foreground" : "text-foreground"}>
+                      {field.label}
+                    </span>
+                    {!field.filled && (
+                      <span className="text-[10px] text-amber-600 font-medium ml-auto">needed</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              {missingCount > 0 && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Gather the missing info during your first call.
+                </p>
+              )}
+            </div>
           </div>
         )}
 
@@ -195,10 +247,27 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                       size="sm"
                       className="mt-2 bg-orange-600 hover:bg-orange-700 text-white h-7 text-xs"
                       onClick={() => handleStatusChange('Scheduled')}
-                      disabled={updateMutation.isPending || !isIntakeComplete()}
+                      disabled={updateMutation.isPending}
                     >
                       Schedule Now
                     </Button>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Refrigeration Warning for deli types */}
+            {recordHasDeli && !intake.refrigerationConfirmed && (
+              <div className="bg-amber-50 border border-amber-300 rounded-lg p-3">
+                <div className="flex items-start gap-2">
+                  <AlertTriangle className="h-4 w-4 text-amber-600 mt-0.5 shrink-0" />
+                  <div>
+                    <p className="text-sm font-medium text-amber-800">
+                      Refrigeration not confirmed
+                    </p>
+                    <p className="text-xs text-amber-700 mt-0.5">
+                      This event includes deli meat types that require confirmed refrigeration before scheduling.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -223,15 +292,26 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                   const checked = checklistState[item.key];
                   const isDerived = !!item.derivedFrom;
                   const showAuto = item.showAutoTag === true && isDerived && checked;
+
+                  // Special styling for refrigeration item when deli types selected
+                  const isRefrigerationItem = item.key === 'refrigeration';
+                  const showAmber = isRefrigerationItem && recordHasDeli && !checked;
+                  // Grey out refrigeration for PBJ-only events
+                  const isNA = isRefrigerationItem && !recordHasDeli && intake.sandwichType;
+
                   return (
                     <label
                       key={item.key}
                       className={`flex items-start gap-2 py-1 px-2 rounded text-sm transition-colors ${
-                        showAuto
-                          ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
-                          : checked
-                            ? "text-muted-foreground"
-                            : "hover:bg-muted/50 cursor-pointer"
+                        isNA
+                          ? "opacity-40"
+                          : showAmber
+                            ? "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800"
+                            : showAuto
+                              ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
+                              : checked
+                                ? "text-muted-foreground"
+                                : "hover:bg-muted/50 cursor-pointer"
                       }`}
                     >
                       <Checkbox
@@ -251,6 +331,11 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                             auto
                           </span>
                         )}
+                        {isNA && (
+                          <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
+                            N/A (PBJ only)
+                          </span>
+                        )}
                       </span>
                     </label>
                   );
@@ -265,8 +350,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 onClick={() => handleStatusChange('Scheduled')}
                 disabled={
                   updateMutation.isPending ||
-                  pushMutation.isPending ||
-                  !isIntakeComplete()
+                  pushMutation.isPending
                 }
               >
                 {updateMutation.isPending || pushMutation.isPending ? (
@@ -274,11 +358,18 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 ) : (
                   <Send className="h-4 w-4 mr-2" />
                 )}
-                Ready to Schedule
+                Mark as Scheduled
               </Button>
               {!isIntakeComplete() && (
-                <p className="text-xs text-muted-foreground text-center mt-1.5">
-                  Complete: event date, location, sandwich count, and type
+                <p className="text-xs text-amber-600 text-center mt-1.5">
+                  You can still schedule, but try to confirm these before the day of: {
+                    [
+                      !intake.eventDate && 'event date',
+                      !(intake.eventAddress || intake.location) && 'location',
+                      intake.sandwichCount <= 0 && 'sandwich count',
+                      !intake.sandwichType && 'sandwich type',
+                    ].filter(Boolean).join(', ')
+                  }
                 </p>
               )}
               {isIntakeComplete() && incompleteIntakeItems.length > 0 && (
@@ -403,8 +494,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
             {eventPassed && (
               <div className="border-t pt-3">
                 <Button
-                  className="w-full"
-                  variant="outline"
+                  className="w-full bg-green-600 hover:bg-green-700 text-white"
                   onClick={() => handleStatusChange('Completed')}
                   disabled={updateMutation.isPending}
                 >
@@ -428,9 +518,67 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 </p>
               )}
             </div>
-            <div className="text-center text-sm text-muted-foreground">
+
+            {/* Post-Event Follow-Up Checklist */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">Post-Event Follow-Up</span>
+                <span className="text-muted-foreground">{postEventCompleted}/{postEventTotal}</span>
+              </div>
+              <Progress value={Math.round((postEventCompleted / postEventTotal) * 100)} className="h-2" />
+            </div>
+
+            <div className="space-y-1">
+              {POST_EVENT_CHECKLIST_ITEMS.map(item => {
+                const checked = checklistState[item.key];
+                const isDerived = !!item.derivedFrom;
+                const showAuto = item.showAutoTag === true && isDerived && checked;
+                return (
+                  <label
+                    key={item.key}
+                    className={`flex items-start gap-2 py-1.5 px-2 rounded text-sm transition-colors ${
+                      showAuto
+                        ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
+                        : checked
+                          ? "text-muted-foreground"
+                          : "hover:bg-muted/50 cursor-pointer"
+                    }`}
+                  >
+                    <Checkbox
+                      checked={checked}
+                      disabled={isDerived}
+                      onCheckedChange={(val) => {
+                        if (!isDerived) {
+                          handleChecklistToggle(item.key, val === true);
+                        }
+                      }}
+                      className="mt-0.5 shrink-0"
+                    />
+                    <span className={`flex-1 ${checked ? "line-through" : ""}`}>
+                      {item.label}
+                      {showAuto && (
+                        <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
+                          auto
+                        </span>
+                      )}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+
+            {/* Summary stats */}
+            <div className="border-t pt-3 text-center text-sm text-muted-foreground space-y-1">
               <p>Intake: {intakeCompleted}/{intakeTotal} · Day-of: {dayOfCompleted}/{dayOfTotal}</p>
               <p>{contactCount} contact attempt{contactCount !== 1 ? 's' : ''} logged</p>
+              {intake.actualSandwichCount != null && intake.actualSandwichCount > 0 && (
+                <p className="font-medium text-primary">
+                  {intake.actualSandwichCount} sandwiches made
+                  {intake.sandwichCount > 0 && (
+                    <span className="text-muted-foreground font-normal"> (planned: {intake.sandwichCount})</span>
+                  )}
+                </p>
+              )}
             </div>
           </div>
         )}
