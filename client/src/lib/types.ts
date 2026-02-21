@@ -74,6 +74,7 @@ export interface IntakeRecord {
   hasIndoorSpace: boolean;
   hasRefrigeration: boolean;
   refrigerationConfirmed: boolean;
+  refrigerationNotes?: string | null;
   pickupTimeWindow?: string | null;
   nextDayPickup: boolean;
   deliveryInstructions: string;
@@ -112,33 +113,34 @@ export interface Task {
   type: 'follow_up' | 'pre_event' | 'reminder' | 'post_event';
 }
 
-// --- Intake Checklist Definitions ---
+// --- Checklist Definitions ---
 
 export interface ChecklistItemDef {
   key: string;
   label: string;
-  group: 'event_details' | 'food_safety' | 'preparation' | 'packaging' | 'follow_up';
+  group: string;
   derivedFrom?: (record: IntakeRecord) => boolean;
 }
 
-export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
-  // Event Details (auto-derived from form fields)
-  { key: 'event_address', label: 'Event address (where sandwiches will be made)', group: 'event_details', derivedFrom: (r) => !!(r.eventAddress || r.location) },
-  { key: 'event_date', label: 'Event date', group: 'event_details', derivedFrom: (r) => !!r.eventDate },
-  { key: 'event_time', label: 'Event time (start and end)', group: 'event_details', derivedFrom: (r) => !!(r.eventStartTime && r.eventEndTime) },
-  { key: 'refrigeration', label: 'Refrigeration confirmed with contact (access, space, education on handling)', group: 'event_details', derivedFrom: (r) => !!r.refrigerationConfirmed },
-  { key: 'sandwich_type', label: 'Sandwich type specified (turkey, ham, chicken, or PBJ)', group: 'event_details', derivedFrom: (r) => !!r.sandwichType },
-  { key: 'sandwich_count', label: 'Sandwich count confirmed', group: 'event_details', derivedFrom: (r) => r.sandwichCount > 0 },
+/** Intake checklist: 6–8 items for the intake call only. Maps to Sections 1 & 2. */
+export const INTAKE_CHECKLIST_ITEMS: ChecklistItemDef[] = [
+  { key: 'event_address', label: 'Event address (where sandwiches will be made)', group: 'intake', derivedFrom: (r) => !!(r.eventAddress || r.location) },
+  { key: 'event_date', label: 'Event date', group: 'intake', derivedFrom: (r) => !!r.eventDate },
+  { key: 'event_time', label: 'Event time (start and end)', group: 'intake', derivedFrom: (r) => !!(r.eventStartTime && r.eventEndTime) },
+  { key: 'refrigeration', label: 'Refrigeration confirmed with contact', group: 'intake', derivedFrom: (r) => !!r.refrigerationConfirmed },
+  { key: 'sandwich_type', label: 'Sandwich type specified (turkey, ham, chicken, or PBJ)', group: 'intake', derivedFrom: (r) => !!r.sandwichType },
+  { key: 'sandwich_count', label: 'Sandwich count confirmed', group: 'intake', derivedFrom: (r) => r.sandwichCount > 0 },
+  { key: 'indoor_confirmed', label: 'Indoor space confirmed', group: 'intake', derivedFrom: (r) => !!r.hasIndoorSpace },
+];
 
-  // Food Safety & Purchasing (confirmation items)
+/** Day-of operations checklist: shown only when status is Scheduled. Not part of intake. */
+export const DAY_OF_CHECKLIST_ITEMS: ChecklistItemDef[] = [
   { key: 'inventory_calculator', label: 'Walked through inventory calculator & helped budget shopping trip', group: 'food_safety' },
   { key: 'one_buyer_rule', label: 'All meat must be purchased by ONE individual, not split', group: 'food_safety' },
   { key: 'cheese_type', label: 'Cheese: individually wrapped Kraft-type American only — no deli counter', group: 'food_safety' },
   { key: 'prepackaged_only', label: 'Prepackaged meats & cheeses ONLY — nothing sliced at the counter', group: 'food_safety' },
   { key: 'meat_type', label: 'Turkey or chicken only — no ham (minimal exceptions)', group: 'food_safety' },
   { key: 'bread_choice', label: "Bread: group's choice, any white/wheat works", group: 'food_safety' },
-
-  // Preparation Rules (confirmation items)
   { key: 'assembly_method', label: 'Assembly: 2 pieces of cheese with meat IN BETWEEN', group: 'preparation' },
   { key: 'meat_portions', label: 'Meat portions: use serving size on package (2-3 slices)', group: 'preparation' },
   { key: 'hairnets', label: 'Hairnets required during sandwich making', group: 'preparation' },
@@ -146,20 +148,18 @@ export const CHECKLIST_ITEMS: ChecklistItemDef[] = [
   { key: 'hand_washing', label: 'Hand washing: soap & water ONLY — NOT hand sanitizer', group: 'preparation' },
   { key: 'clean_surfaces', label: 'Clean all surfaces before starting prep', group: 'preparation' },
   { key: 'batch_ingredients', label: 'Batch ingredients — meat & cheese spend minimal time outside fridge', group: 'preparation' },
-
-  // Packaging & Transport (confirmation items)
   { key: 'bag_individually', label: 'Bag each sandwich in sandwich-size Ziploc bags', group: 'packaging' },
   { key: 'bread_bag_reuse', label: 'Stack bagged sandwiches in bread bags — save bags & twist ties (buy extras)', group: 'packaging' },
   { key: 'tsp_labels', label: 'TSP labels on bread bags: date, meat type, # of sandwiches', group: 'packaging' },
   { key: 'refrigerate_before_transport', label: 'Bags into fridge to cool before going into cooler', group: 'packaging' },
   { key: 'cooler_transport', label: 'Transport in cooler with ice packs', group: 'packaging' },
-
-  // Follow-up
   { key: 'photo_instructions', label: 'Photos to photos@thesandwichproject.org — include names/Instagram handles for tagging', group: 'follow_up' },
 ];
 
-export const CHECKLIST_GROUP_LABELS: Record<string, string> = {
-  event_details: 'Event Details',
+/** All checklist items (for backwards compatibility / completed view). */
+export const CHECKLIST_ITEMS: ChecklistItemDef[] = [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS];
+
+export const DAY_OF_GROUP_LABELS: Record<string, string> = {
   food_safety: 'Food Safety & Purchasing',
   preparation: 'Preparation Rules',
   packaging: 'Packaging & Transport',

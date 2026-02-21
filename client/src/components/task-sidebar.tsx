@@ -14,7 +14,7 @@ export function TaskSidebar({ intakeId }: { intakeId: string }) {
       id: taskId,
       data: {
         completed: !currentCompleted,
-        completedAt: !currentCompleted ? new Date() : null,
+        completedAt: !currentCompleted ? new Date().toISOString() : undefined,
       },
     });
   };

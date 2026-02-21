@@ -63,6 +63,7 @@ export const intakeRecords = pgTable("intake_records", {
   hasIndoorSpace: boolean("has_indoor_space").notNull().default(true),
   hasRefrigeration: boolean("has_refrigeration").notNull().default(false),
   refrigerationConfirmed: boolean("refrigeration_confirmed").notNull().default(false),
+  refrigerationNotes: text("refrigeration_notes"),
   pickupTimeWindow: text("pickup_time_window"),
   nextDayPickup: boolean("next_day_pickup").notNull().default(false),
   deliveryInstructions: text("delivery_instructions"),

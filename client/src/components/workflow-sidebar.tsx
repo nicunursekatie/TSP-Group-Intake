@@ -16,9 +16,11 @@ import {
   Send,
 } from "lucide-react";
 import {
-  CHECKLIST_ITEMS,
-  CHECKLIST_GROUP_LABELS,
+  INTAKE_CHECKLIST_ITEMS,
+  DAY_OF_CHECKLIST_ITEMS,
+  DAY_OF_GROUP_LABELS,
   type IntakeRecord,
+  type IntakeStatus,
   type Task,
   type ChecklistItemDef,
 } from "@/lib/types";
@@ -37,10 +39,10 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const pushMutation = usePushToPlatform();
   const queryClient = useQueryClient();
 
-  // Compute checklist state
+  // Compute checklist state for intake and day-of items
   const checklistState = useMemo(() => {
     const state: Record<string, boolean> = {};
-    for (const item of CHECKLIST_ITEMS) {
+    for (const item of [...INTAKE_CHECKLIST_ITEMS, ...DAY_OF_CHECKLIST_ITEMS]) {
       if (item.derivedFrom) {
         state[item.key] = item.derivedFrom(intake);
       } else {
@@ -50,9 +52,22 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
     return state;
   }, [intake]);
 
-  const completedCount = Object.values(checklistState).filter(Boolean).length;
-  const totalCount = CHECKLIST_ITEMS.length;
-  const progressPercent = Math.round((completedCount / totalCount) * 100);
+  const intakeCompleted = INTAKE_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
+  const intakeTotal = INTAKE_CHECKLIST_ITEMS.length;
+  const intakeProgressPercent = Math.round((intakeCompleted / intakeTotal) * 100);
+
+  const dayOfCompleted = DAY_OF_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
+  const dayOfTotal = DAY_OF_CHECKLIST_ITEMS.length;
+
+  // Core intake fields required to transition In Process → Scheduled
+  const isIntakeComplete = (): boolean => {
+    const hasLocation = !!(intake.eventAddress || intake.location);
+    const hasEventDate = !!intake.eventDate;
+    const hasSandwichCount = intake.sandwichCount > 0;
+    const hasSandwichType = !!intake.sandwichType;
+    const hasIndoor = !!intake.hasIndoorSpace;
+    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType && hasIndoor;
+  };
 
   const daysUntilEvent = intake.eventDate
     ? differenceInDays(new Date(intake.eventDate), new Date())
@@ -75,7 +90,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
     );
   };
 
-  const handleStatusChange = (newStatus: string) => {
+  const handleStatusChange = (newStatus: IntakeStatus) => {
     updateMutation.mutate(
       { id: intake.id, data: { status: newStatus } },
       {
@@ -94,18 +109,18 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
     );
   };
 
-  // Group checklist items
-  const groupedItems = useMemo(() => {
+  // Group day-of items by category
+  const groupedDayOfItems = useMemo(() => {
     const groups: Record<string, ChecklistItemDef[]> = {};
-    for (const item of CHECKLIST_ITEMS) {
+    for (const item of DAY_OF_CHECKLIST_ITEMS) {
       if (!groups[item.group]) groups[item.group] = [];
       groups[item.group].push(item);
     }
     return groups;
   }, []);
 
-  // Incomplete items for the Scheduled view
-  const incompleteItems = CHECKLIST_ITEMS.filter(item => !checklistState[item.key]);
+  const incompleteIntakeItems = INTAKE_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
+  const incompleteDayOfItems = DAY_OF_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
 
   return (
     <ScrollArea className="h-full">
@@ -114,7 +129,9 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
         <div className="space-y-1">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold text-sm uppercase tracking-wider text-muted-foreground">
-              Workflow
+              {intake.status === "Scheduled" || intake.status === "Completed"
+                ? "Workflow"
+                : "Intake Checklist"}
             </h3>
             <Badge variant="outline" className="text-xs">
               {intake.status}
@@ -186,65 +203,69 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </div>
             )}
 
-            {/* Progress */}
+            {/* Intake Progress (6–8 items only) */}
             <div className="space-y-2">
               <div className="flex items-center justify-between text-sm">
                 <span className="font-medium">Intake Progress</span>
-                <span className="text-muted-foreground">{completedCount}/{totalCount}</span>
+                <span className="text-muted-foreground">{intakeCompleted}/{intakeTotal}</span>
               </div>
-              <Progress value={progressPercent} className="h-2" />
+              <Progress value={intakeProgressPercent} className="h-2" />
             </div>
 
-            {/* Checklist Groups */}
-            {Object.entries(groupedItems).map(([group, items]) => {
-              const groupComplete = items.every(item => checklistState[item.key]);
-              return (
-                <div key={group} className="space-y-1.5">
-                  <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground flex items-center gap-1.5">
-                    {groupComplete && <CheckCircle2 className="h-3 w-3 text-green-600" />}
-                    {CHECKLIST_GROUP_LABELS[group] || group}
-                  </h4>
-                  <div className="space-y-1">
-                    {items.map(item => {
-                      const checked = checklistState[item.key];
-                      const isDerived = !!item.derivedFrom;
-                      return (
-                        <label
-                          key={item.key}
-                          className={`flex items-start gap-2 py-1 px-2 rounded text-sm cursor-pointer hover:bg-muted/50 transition-colors ${
-                            checked ? 'text-muted-foreground' : ''
-                          }`}
-                        >
-                          <Checkbox
-                            checked={checked}
-                            disabled={isDerived}
-                            onCheckedChange={(val) => {
-                              if (!isDerived) {
-                                handleChecklistToggle(item.key, val === true);
-                              }
-                            }}
-                            className="mt-0.5 shrink-0"
-                          />
-                          <span className={checked ? 'line-through' : ''}>
-                            {item.label}
-                            {isDerived && (
-                              <span className="text-[10px] text-muted-foreground ml-1">(auto)</span>
-                            )}
+            {/* Intake Checklist Items */}
+            <div className="space-y-1.5">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Complete during the intake call
+              </h4>
+              <div className="space-y-1">
+                {INTAKE_CHECKLIST_ITEMS.map(item => {
+                  const checked = checklistState[item.key];
+                  const isDerived = !!item.derivedFrom;
+                  return (
+                    <label
+                      key={item.key}
+                      className={`flex items-start gap-2 py-1 px-2 rounded text-sm transition-colors ${
+                        isDerived && checked
+                          ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
+                          : checked
+                            ? "text-muted-foreground"
+                            : "hover:bg-muted/50 cursor-pointer"
+                      }`}
+                    >
+                      <Checkbox
+                        checked={checked}
+                        disabled={isDerived}
+                        onCheckedChange={(val) => {
+                          if (!isDerived) {
+                            handleChecklistToggle(item.key, val === true);
+                          }
+                        }}
+                        className="mt-0.5 shrink-0"
+                      />
+                      <span className={`flex-1 ${checked ? "line-through" : ""}`}>
+                        {item.label}
+                        {isDerived && (
+                          <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
+                            auto
                           </span>
-                        </label>
-                      );
-                    })}
-                  </div>
-                </div>
-              );
-            })}
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
 
             {/* Ready to Schedule */}
             <div className="border-t pt-3">
               <Button
                 className="w-full bg-teal-600 hover:bg-teal-700 text-white"
                 onClick={() => handleStatusChange('Scheduled')}
-                disabled={updateMutation.isPending || pushMutation.isPending}
+                disabled={
+                  updateMutation.isPending ||
+                  pushMutation.isPending ||
+                  !isIntakeComplete()
+                }
               >
                 {updateMutation.isPending || pushMutation.isPending ? (
                   <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -253,9 +274,14 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 )}
                 Ready to Schedule
               </Button>
-              {progressPercent < 80 && (
+              {!isIntakeComplete() && (
                 <p className="text-xs text-muted-foreground text-center mt-1.5">
-                  {totalCount - completedCount} items still incomplete
+                  Complete: event date, location, sandwich count, type, and indoor confirmed
+                </p>
+              )}
+              {isIntakeComplete() && incompleteIntakeItems.length > 0 && (
+                <p className="text-xs text-muted-foreground text-center mt-1.5">
+                  {incompleteIntakeItems.length} optional item(s) remaining
                 </p>
               )}
             </div>
@@ -287,44 +313,45 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               )}
             </div>
 
-            {/* Outstanding Items */}
-            {incompleteItems.length > 0 && (
-              <div className="space-y-2">
-                <h4 className="text-xs font-semibold uppercase tracking-wider text-orange-600">
-                  Outstanding Items ({incompleteItems.length})
-                </h4>
-                <div className="space-y-1">
-                  {incompleteItems.map(item => {
-                    const isDerived = !!item.derivedFrom;
+            {/* Day-Of Operations Checklist */}
+            <div className="space-y-3">
+              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                Day-Of Operations ({dayOfCompleted}/{dayOfTotal})
+              </h4>
+              {incompleteDayOfItems.length === 0 && (
+                <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 dark:bg-green-950/40 dark:text-green-200 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                  <CheckCircle2 className="h-4 w-4 shrink-0" />
+                  All day-of items complete!
+                </div>
+              )}
+              {Object.entries(groupedDayOfItems).map(([group, items]) => (
+                <div key={group} className="space-y-1">
+                  <h5 className="text-[10px] font-medium uppercase text-muted-foreground">
+                    {DAY_OF_GROUP_LABELS[group] || group}
+                  </h5>
+                  {items.map(item => {
+                    const checked = checklistState[item.key];
                     return (
                       <label
                         key={item.key}
-                        className="flex items-start gap-2 py-1 px-2 rounded text-sm cursor-pointer hover:bg-muted/50"
+                        className={`flex items-start gap-2 py-1 px-2 rounded text-sm cursor-pointer hover:bg-muted/50 ${
+                          checked ? "text-muted-foreground" : ""
+                        }`}
                       >
                         <Checkbox
-                          checked={false}
-                          disabled={isDerived}
-                          onCheckedChange={(val) => {
-                            if (!isDerived) {
-                              handleChecklistToggle(item.key, val === true);
-                            }
-                          }}
+                          checked={checked}
+                          onCheckedChange={(val) =>
+                            handleChecklistToggle(item.key, val === true)
+                          }
                           className="mt-0.5 shrink-0"
                         />
-                        <span>{item.label}</span>
+                        <span className={checked ? "line-through" : ""}>{item.label}</span>
                       </label>
                     );
                   })}
                 </div>
-              </div>
-            )}
-
-            {incompleteItems.length === 0 && (
-              <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg p-3">
-                <CheckCircle2 className="h-4 w-4" />
-                All checklist items complete!
-              </div>
-            )}
+              ))}
+            </div>
 
             {/* Timeline Tasks */}
             {tasks.length > 0 && (
@@ -382,17 +409,17 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
         {/* === COMPLETED STATUS === */}
         {intake.status === 'Completed' && (
           <div className="space-y-4">
-            <div className="bg-green-50 border border-green-200 rounded-lg p-3 text-center">
-              <CheckCircle2 className="h-6 w-6 mx-auto text-green-600 mb-1" />
-              <p className="font-medium text-green-900">Event Complete</p>
+            <div className="bg-green-50 dark:bg-green-950/40 border border-green-200 dark:border-green-800 rounded-lg p-3 text-center">
+              <CheckCircle2 className="h-6 w-6 mx-auto text-green-600 dark:text-green-400 mb-1" />
+              <p className="font-medium text-green-900 dark:text-green-100">Event Complete</p>
               {intake.eventDate && (
-                <p className="text-sm text-green-700">
+                <p className="text-sm text-green-700 dark:text-green-300">
                   {format(new Date(intake.eventDate), "MMMM d, yyyy")}
                 </p>
               )}
             </div>
             <div className="text-center text-sm text-muted-foreground">
-              <p>Checklist: {completedCount}/{totalCount} confirmed</p>
+              <p>Intake: {intakeCompleted}/{intakeTotal} · Day-of: {dayOfCompleted}/{dayOfTotal}</p>
               <p>{contactCount} contact attempt{contactCount !== 1 ? 's' : ''} logged</p>
             </div>
           </div>

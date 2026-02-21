@@ -82,6 +82,7 @@ const intakeSchema = z.object({
   hasIndoorSpace: z.boolean(),
   hasRefrigeration: z.boolean(),
   refrigerationConfirmed: z.boolean(),
+  refrigerationNotes: z.string().optional(),
   pickupTimeWindow: z.string().optional(),
   nextDayPickup: z.boolean(),
   deliveryInstructions: z.string().optional(),
@@ -196,6 +197,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       hasIndoorSpace: intake.hasIndoorSpace,
       hasRefrigeration: intake.hasRefrigeration,
       refrigerationConfirmed: intake.refrigerationConfirmed ?? false,
+      refrigerationNotes: intake.refrigerationNotes || "",
       pickupTimeWindow: intake.pickupTimeWindow || "",
       nextDayPickup: intake.nextDayPickup ?? false,
       deliveryInstructions: intake.deliveryInstructions || "",
@@ -248,6 +250,8 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
 
   // Derived flags for UI warnings
   const sandwichCount = form.watch("sandwichCount");
+  const currentStatus = form.watch("status");
+  const isPostSchedulingReady = currentStatus === "Scheduled" || currentStatus === "Completed";
   const requiresFridge = form.watch("requiresRefrigeration");
   const hasIndoor = form.watch("hasIndoorSpace");
   const refrigerationConfirmed = form.watch("refrigerationConfirmed");
@@ -266,6 +270,16 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const showVolumeWarning = sandwichCount >= 400;
   const showFridgeWarning = requiresFridge && !refrigerationConfirmed;
   const showIndoorWarning = !hasIndoor;
+
+  const isIntakeComplete = (): boolean => {
+    const v = form.getValues();
+    const hasLocation = !!(v.eventAddress || v.location);
+    const hasEventDate = !!v.eventDate;
+    const hasSandwichCount = (v.sandwichCount ?? 0) > 0;
+    const hasSandwichType = !!v.sandwichType;
+    const hasIndoor = !!v.hasIndoorSpace;
+    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType && hasIndoor;
+  };
 
   const copySummary = () => {
     const v = form.getValues();
@@ -299,7 +313,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                 <SelectContent>
                   <SelectItem value="New">New</SelectItem>
                   <SelectItem value="In Process">In Process</SelectItem>
-                  <SelectItem value="Scheduled">Scheduled</SelectItem>
+                  <SelectItem
+                    value="Scheduled"
+                    disabled={currentStatus === "In Process" && !isIntakeComplete()}
+                  >
+                    Scheduled
+                  </SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
@@ -362,6 +381,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                 </span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
+                <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  Start here. Ask for organization name, primary contact, and how they prefer to be reached.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <FormField
                     control={form.control}
@@ -562,6 +584,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                  <span className="font-semibold text-lg">2. Event Details</span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
+                <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  Get event date, time, location, and sandwich count/type. Confirm indoor space and refrigeration.
+                </p>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                   <FormField
                     control={form.control}
@@ -572,6 +597,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         <FormControl>
                           <Input type="date" {...field} className="h-11" />
                         </FormControl>
+                        <FormDescription className="text-xs">
+                          Ask: When would work for your group?
+                        </FormDescription>
                         {(intake.desiredEventDate || intake.scheduledEventDate) && (
                           <div className="text-xs text-muted-foreground space-y-0.5 mt-1">
                             {intake.desiredEventDate && (
@@ -595,6 +623,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Start Time</FormLabel>
+                        <FormDescription className="text-xs">
+                          Ask: What time will the event start and end?
+                        </FormDescription>
                         <FormControl>
                           <Input placeholder="e.g. 11:00 AM" {...field} className="h-11" />
                         </FormControl>
@@ -619,6 +650,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     render={({ field }) => (
                       <FormItem className="md:col-span-2">
                         <FormLabel>Location / Address</FormLabel>
+                        <FormDescription className="text-xs">
+                          Ask: Where will sandwiches be made? (Full address)
+                        </FormDescription>
                         <FormControl>
                           <Input placeholder="123 Main St, City, State" {...field} />
                         </FormControl>
@@ -692,6 +726,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
 
                   <div>
                     <label className="text-sm font-medium mb-2 block">Sandwiches Planned</label>
+                    <p className="text-xs text-muted-foreground mb-2">
+                      Ask: How many sandwiches do you need, and what types? (Turkey, ham, chicken, or PBJ)
+                    </p>
                     <div className="space-y-2">
                       {sandwichPlan.map((entry: SandwichPlanEntry, index: number) => (
                         <div key={index} className="flex items-center gap-2">
@@ -776,6 +813,92 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   )}
                 />
 
+                {/* Indoor & Refrigeration — intake call confirmations */}
+                <div className="p-4 bg-muted/30 rounded-lg border border-border/50 space-y-4">
+                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">
+                    Confirm on the call
+                  </h4>
+                  <FormField
+                    control={form.control}
+                    name="hasIndoorSpace"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                        <FormControl>
+                          <Checkbox
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                          />
+                        </FormControl>
+                        <div className="space-y-1 leading-none">
+                          <FormLabel>Event is taking place indoors?</FormLabel>
+                          <FormDescription>
+                            Ask: Will sandwiches be made indoors? (Under no circumstances can sandwiches be made outdoors.)
+                          </FormDescription>
+                          {!field.value && (
+                            <p className="text-destructive text-sm font-medium mt-2 flex items-center">
+                              <AlertTriangle className="h-3 w-3 mr-1" />
+                              CRITICAL: Sandwiches cannot be made outdoors
+                            </p>
+                          )}
+                        </div>
+                      </FormItem>
+                    )}
+                  />
+
+                  {isDeli && (
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="refrigerationConfirmed"
+                        render={({ field }) => (
+                          <FormItem
+                            className={cn(
+                              "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4",
+                              !field.value && "border-destructive bg-destructive/5"
+                            )}
+                          >
+                            <FormControl>
+                              <Checkbox
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                            <div className="space-y-1 leading-none">
+                              <FormLabel className={cn(!field.value && "text-destructive")}>
+                                Refrigeration confirmed
+                              </FormLabel>
+                              <FormDescription className="text-sm leading-relaxed mt-1">
+                                Ask: Will sandwiches be refrigerated at the location until pickup? Do you have enough fridge space? Have you explained batching (only take out enough for 1 loaf at a time) and that assembled loaves go back in the fridge to cool before transport?
+                              </FormDescription>
+                              {!field.value && (
+                                <p className="text-destructive text-sm font-bold mt-2 flex items-center">
+                                  <AlertTriangle className="h-3 w-3 mr-1" />
+                                  CRITICAL: Refrigeration must be confirmed for deli meat sandwiches
+                                </p>
+                              )}
+                            </div>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="refrigerationNotes"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Refrigeration conversation notes</FormLabel>
+                            <FormDescription>
+                              What the contact said about their fridge, space, or handling plans
+                            </FormDescription>
+                            <FormControl>
+                              <Textarea placeholder="e.g. They have a commercial fridge in the break room; coordinator will oversee batching..." {...field} />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                    </>
+                  )}
+                </div>
+
                 <FormField
                   control={form.control}
                   name="schedulingNotes"
@@ -791,83 +914,25 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </AccordionContent>
             </AccordionItem>
 
-            {/* Logistics & Food Safety */}
-            <AccordionItem value="logistics" className="border rounded-lg bg-card px-4 shadow-sm">
+            {/* Post-Scheduling Logistics — collect after event is confirmed */}
+            <AccordionItem
+              value="logistics"
+              className={cn(
+                "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
+                !isPostSchedulingReady && "opacity-70"
+              )}
+            >
               <AccordionTrigger className="hover:no-underline py-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg">3. Logistics & Food Safety</span>
-                  {(showFridgeWarning || showIndoorWarning) && (
-                    <Badge variant="destructive" className="ml-2">Risks Detected</Badge>
+                  <span className="font-semibold text-lg">3. Post-Scheduling Logistics</span>
+                  {!isPostSchedulingReady && (
+                    <Badge variant="secondary" className="ml-2 text-xs">
+                      Available after Scheduled
+                    </Badge>
                   )}
                 </div>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
-                
-                <div className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="hasIndoorSpace"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
-                        <FormControl>
-                          <Checkbox
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                          />
-                        </FormControl>
-                        <div className="space-y-1 leading-none">
-                          <FormLabel>
-                            Event is taking place indoors?
-                          </FormLabel>
-                          <FormDescription>
-                            Under no circumstances can sandwiches be made outdoors.
-                          </FormDescription>
-                          {!field.value && (
-                             <p className="text-destructive text-sm font-medium mt-2 flex items-center">
-                              <AlertTriangle className="h-3 w-3 mr-1" />
-                              CRITICAL: Sandwiches cannot be made outdoors
-                            </p>
-                          )}
-                        </div>
-                      </FormItem>
-                    )}
-                  />
-
-                  {isDeli && (
-                    <FormField
-                      control={form.control}
-                      name="refrigerationConfirmed"
-                      render={({ field }) => (
-                        <FormItem className={cn(
-                          "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4",
-                          !field.value && "border-destructive bg-destructive/5"
-                        )}>
-                          <FormControl>
-                            <Checkbox
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                          <div className="space-y-1 leading-none">
-                            <FormLabel className={cn(!field.value && "text-destructive")}>
-                              Refrigeration Confirmed
-                            </FormLabel>
-                            <FormDescription className="text-sm leading-relaxed mt-1">
-                              Have you confirmed with the contact that they have access to refrigeration on the day of the event, that it has enough space for the {sandwichCount || '___'} sandwiches they are making, and that the contact has been educated on the importance of: refrigeration of ingredients up until sandwich making, taking out ingredients in batches (only enough for each group to make 1 loaf at a time) to minimize ingredients being unrefrigerated, and that sandwich loaves must go back into the refrigerator once assembled to cool before going into coolers?
-                            </FormDescription>
-                            {!field.value && (
-                              <p className="text-destructive text-sm font-bold mt-2 flex items-center">
-                                <AlertTriangle className="h-3 w-3 mr-1" />
-                                CRITICAL: Refrigeration must be confirmed for deli meat sandwiches
-                              </p>
-                            )}
-                          </div>
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </div>
-
                 <FormField
                   control={form.control}
                   name="deliveryInstructions"
