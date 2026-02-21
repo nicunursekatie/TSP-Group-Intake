@@ -19,6 +19,7 @@ import {
   INTAKE_CHECKLIST_ITEMS,
   DAY_OF_CHECKLIST_ITEMS,
   DAY_OF_GROUP_LABELS,
+  AUDIENCE_LABELS,
   type IntakeRecord,
   type IntakeStatus,
   type Task,
@@ -60,13 +61,13 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const dayOfTotal = DAY_OF_CHECKLIST_ITEMS.length;
 
   // Core intake fields required to transition In Process → Scheduled
+  // Note: hasIndoorSpace not gated (defaults true; shared DB with main platform — can't change)
   const isIntakeComplete = (): boolean => {
     const hasLocation = !!(intake.eventAddress || intake.location);
     const hasEventDate = !!intake.eventDate;
     const hasSandwichCount = intake.sandwichCount > 0;
     const hasSandwichType = !!intake.sandwichType;
-    const hasIndoor = !!intake.hasIndoorSpace;
-    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType && hasIndoor;
+    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType;
   };
 
   const daysUntilEvent = intake.eventDate
@@ -194,7 +195,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                       size="sm"
                       className="mt-2 bg-orange-600 hover:bg-orange-700 text-white h-7 text-xs"
                       onClick={() => handleStatusChange('Scheduled')}
-                      disabled={updateMutation.isPending}
+                      disabled={updateMutation.isPending || !isIntakeComplete()}
                     >
                       Schedule Now
                     </Button>
@@ -221,11 +222,12 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 {INTAKE_CHECKLIST_ITEMS.map(item => {
                   const checked = checklistState[item.key];
                   const isDerived = !!item.derivedFrom;
+                  const showAuto = item.showAutoTag === true && isDerived && checked;
                   return (
                     <label
                       key={item.key}
                       className={`flex items-start gap-2 py-1 px-2 rounded text-sm transition-colors ${
-                        isDerived && checked
+                        showAuto
                           ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
                           : checked
                             ? "text-muted-foreground"
@@ -244,7 +246,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                       />
                       <span className={`flex-1 ${checked ? "line-through" : ""}`}>
                         {item.label}
-                        {isDerived && (
+                        {showAuto && (
                           <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
                             auto
                           </span>
@@ -276,7 +278,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </Button>
               {!isIntakeComplete() && (
                 <p className="text-xs text-muted-foreground text-center mt-1.5">
-                  Complete: event date, location, sandwich count, type, and indoor confirmed
+                  Complete: event date, location, sandwich count, and type
                 </p>
               )}
               {isIntakeComplete() && incompleteIntakeItems.length > 0 && (
@@ -331,6 +333,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                   </h5>
                   {items.map(item => {
                     const checked = checklistState[item.key];
+                    const audienceLabel = item.audience ? AUDIENCE_LABELS[item.audience] : null;
                     return (
                       <label
                         key={item.key}
@@ -345,7 +348,14 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                           }
                           className="mt-0.5 shrink-0"
                         />
-                        <span className={checked ? "line-through" : ""}>{item.label}</span>
+                        <div className="flex-1 min-w-0">
+                          <span className={checked ? "line-through" : ""}>{item.label}</span>
+                          {audienceLabel && (
+                            <span className="block text-[10px] text-muted-foreground mt-0.5">
+                              for {audienceLabel}
+                            </span>
+                          )}
+                        </div>
                       </label>
                     );
                   })}

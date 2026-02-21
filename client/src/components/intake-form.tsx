@@ -277,8 +277,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     const hasEventDate = !!v.eventDate;
     const hasSandwichCount = (v.sandwichCount ?? 0) > 0;
     const hasSandwichType = !!v.sandwichType;
-    const hasIndoor = !!v.hasIndoorSpace;
-    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType && hasIndoor;
+    return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType;
   };
 
   const copySummary = () => {
@@ -315,7 +314,10 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   <SelectItem value="In Process">In Process</SelectItem>
                   <SelectItem
                     value="Scheduled"
-                    disabled={currentStatus === "In Process" && !isIntakeComplete()}
+                    disabled={
+                      currentStatus === "In Process" &&
+                      !isIntakeComplete()
+                    }
                   >
                     Scheduled
                   </SelectItem>
