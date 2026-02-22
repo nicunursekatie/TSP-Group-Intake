@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useMemo, useCallback } from "react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -143,6 +143,39 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   const filledCount = criticalFieldStatus.filter(f => f.filled).length;
   const missingCount = criticalFieldStatus.filter(f => !f.filled).length;
 
+  // Map checklist/critical-field keys to form element IDs
+  const FIELD_ID_MAP: Record<string, string> = {
+    // Intake checklist items
+    event_address: 'field-event_address',
+    event_date: 'field-event_date',
+    event_time: 'field-event_time',
+    sandwich_type: 'field-sandwich_type',
+    sandwich_count: 'field-sandwich_type', // same section as type
+    refrigeration: 'field-refrigeration',
+    indoor_confirmed: 'field-indoor_confirmed',
+    // Critical intake fields (used in "New" status)
+    eventDate: 'field-event_date',
+    location: 'field-event_address',
+    contactEmail: 'field-contactEmail',
+    contactPhone: 'field-contactPhone',
+    sandwichType: 'field-sandwich_type',
+    sandwichCount: 'field-sandwich_type',
+  };
+
+  const scrollToField = useCallback((key: string) => {
+    const elementId = FIELD_ID_MAP[key];
+    if (!elementId) return;
+    const el = document.getElementById(elementId);
+    if (!el) return;
+
+    // Scroll the form container (the parent with overflow-y-auto)
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
+    // Brief highlight pulse
+    el.classList.add('field-highlight');
+    setTimeout(() => el.classList.remove('field-highlight'), 1500);
+  }, []);
+
   return (
     <ScrollArea className="h-full">
       <div className="p-4 space-y-5">
@@ -207,7 +240,14 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 <div className="space-y-0.5">
                   <p className="text-xs font-medium text-muted-foreground">Still needed:</p>
                   {criticalFieldStatus.filter(f => !f.filled).map(field => (
-                    <p key={field.key} className="text-xs text-amber-600 pl-2">- {field.label}</p>
+                    <button
+                      key={field.key}
+                      type="button"
+                      onClick={() => scrollToField(field.key)}
+                      className="block text-xs text-amber-600 pl-2 hover:text-amber-800 cursor-pointer text-left"
+                    >
+                      - {field.label}
+                    </button>
                   ))}
                   <p className="text-xs text-muted-foreground mt-1">
                     Gather during your first call.
@@ -277,10 +317,15 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               <div className="space-y-1.5">
                 <h4 className="text-xs font-medium text-muted-foreground">Still needed:</h4>
                 {incompleteIntakeItems.map(item => (
-                  <div key={item.key} className="flex items-center gap-2 text-sm py-0.5 px-2">
+                  <button
+                    key={item.key}
+                    type="button"
+                    onClick={() => scrollToField(item.key)}
+                    className="flex items-center gap-2 text-sm py-0.5 px-2 w-full text-left rounded hover:bg-muted/50 transition-colors cursor-pointer"
+                  >
                     <Circle className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                    <span>{item.label}</span>
-                  </div>
+                    <span className="underline decoration-muted-foreground/30 underline-offset-2">{item.label}</span>
+                  </button>
                 ))}
               </div>
             ) : (

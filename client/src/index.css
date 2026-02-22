@@ -166,3 +166,14 @@
     font-family: 'Poppins', sans-serif;
   }
 }
+
+/* Scroll-to-field highlight pulse */
+.field-highlight {
+  animation: field-pulse 1.5s ease-out;
+}
+
+@keyframes field-pulse {
+  0% { box-shadow: 0 0 0 0 hsl(191 56% 54% / 0.5); }
+  30% { box-shadow: 0 0 0 4px hsl(191 56% 54% / 0.3); }
+  100% { box-shadow: 0 0 0 0 hsl(191 56% 54% / 0); }
+}

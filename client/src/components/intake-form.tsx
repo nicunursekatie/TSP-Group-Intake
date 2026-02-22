@@ -597,7 +597,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="contactEmail"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem id="field-contactEmail">
                         <FormLabel>Email <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactEmail')} /></FormLabel>
                         <FormControl>
                           <Input placeholder="email@example.com" {...field} />
@@ -610,7 +610,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="contactPhone"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem id="field-contactPhone">
                         <FormLabel>Phone <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactPhone')} /></FormLabel>
                         <FormControl>
                           <Input placeholder="(555) 123-4567" {...field} />
@@ -746,7 +746,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="eventDate"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem id="field-event_date">
                         <FormLabel>Event Date <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_date')} /></FormLabel>
                         <FormControl>
                           <Input type="date" {...field} className="h-11" />
@@ -775,7 +775,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="eventStartTime"
                     render={({ field }) => (
-                      <FormItem>
+                      <FormItem id="field-event_time">
                         <FormLabel>Start Time <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_time')} /></FormLabel>
                         <FormDescription className="text-xs">
                           Ask: What time will the event start and end?
@@ -802,7 +802,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="location"
                     render={({ field }) => (
-                      <FormItem className="md:col-span-2">
+                      <FormItem id="field-event_address" className="md:col-span-2">
                         <FormLabel>Location / Address <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_address')} /></FormLabel>
                         <FormDescription className="text-xs">
                           Ask: Where will sandwiches be made? (Full address)
@@ -888,7 +888,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     />
                   </div>
 
-                  <div>
+                  <div id="field-sandwich_type">
                     <label className="text-sm font-medium mb-2 block">Sandwiches Planned <FieldCompletionCheck isComplete={isFieldComplete('event', 'sandwich_type') && isFieldComplete('event', 'sandwich_count')} /></label>
                     <p className="text-xs text-muted-foreground mb-2">
                       Ask: How many sandwiches do you need, and what types? (Turkey, ham, chicken, or PBJ)
@@ -995,7 +995,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     control={form.control}
                     name="hasIndoorSpace"
                     render={({ field }) => (
-                      <FormItem className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
+                      <FormItem id="field-indoor_confirmed" className="flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4">
                         <FormControl>
                           <Checkbox
                             checked={field.value}
@@ -1034,6 +1034,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         name="refrigerationConfirmed"
                         render={({ field }) => (
                           <FormItem
+                            id="field-refrigeration"
                             className={cn(
                               "flex flex-row items-start space-x-3 space-y-0 rounded-md border p-4",
                               !field.value && "border-destructive bg-destructive/5"
