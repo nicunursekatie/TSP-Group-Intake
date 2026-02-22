@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from "react";
+import { useMemo } from "react";
 import { format, differenceInDays, isPast } from "date-fns";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -14,7 +14,6 @@ import {
   Loader2,
   Phone,
   Send,
-  Info,
 } from "lucide-react";
 import {
   INTAKE_CHECKLIST_ITEMS,
@@ -22,7 +21,6 @@ import {
   POST_EVENT_CHECKLIST_ITEMS,
   DAY_OF_GROUP_LABELS,
   AUDIENCE_LABELS,
-  CRITICAL_INTAKE_FIELDS,
   hasDeli,
   type IntakeRecord,
   type IntakeStatus,
@@ -59,7 +57,6 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
 
   const intakeCompleted = INTAKE_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
   const intakeTotal = INTAKE_CHECKLIST_ITEMS.length;
-  const intakeProgressPercent = Math.round((intakeCompleted / intakeTotal) * 100);
 
   const dayOfCompleted = DAY_OF_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
   const dayOfTotal = DAY_OF_CHECKLIST_ITEMS.length;
@@ -129,52 +126,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
     return groups;
   }, []);
 
-  const incompleteIntakeItems = INTAKE_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
   const incompleteDayOfItems = DAY_OF_CHECKLIST_ITEMS.filter((i) => !checklistState[i.key]);
-
-  // For "New" status: which critical fields are already filled vs missing
-  const criticalFieldStatus = useMemo(() => {
-    return CRITICAL_INTAKE_FIELDS.map(f => ({
-      ...f,
-      filled: f.check(intake),
-    }));
-  }, [intake]);
-
-  const filledCount = criticalFieldStatus.filter(f => f.filled).length;
-  const missingCount = criticalFieldStatus.filter(f => !f.filled).length;
-
-  // Map checklist/critical-field keys to form element IDs
-  const FIELD_ID_MAP: Record<string, string> = {
-    // Intake checklist items
-    event_address: 'field-event_address',
-    event_date: 'field-event_date',
-    event_time: 'field-event_time',
-    sandwich_type: 'field-sandwich_type',
-    sandwich_count: 'field-sandwich_type', // same section as type
-    refrigeration: 'field-refrigeration',
-    indoor_confirmed: 'field-indoor_confirmed',
-    // Critical intake fields (used in "New" status)
-    eventDate: 'field-event_date',
-    location: 'field-event_address',
-    contactEmail: 'field-contactEmail',
-    contactPhone: 'field-contactPhone',
-    sandwichType: 'field-sandwich_type',
-    sandwichCount: 'field-sandwich_type',
-  };
-
-  const scrollToField = useCallback((key: string) => {
-    const elementId = FIELD_ID_MAP[key];
-    if (!elementId) return;
-    const el = document.getElementById(elementId);
-    if (!el) return;
-
-    // Scroll the form container (the parent with overflow-y-auto)
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-
-    // Brief highlight pulse
-    el.classList.add('field-highlight');
-    setTimeout(() => el.classList.remove('field-highlight'), 1500);
-  }, []);
 
   return (
     <ScrollArea className="h-full">
@@ -228,33 +180,6 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                   : `${contactCount} attempt(s) logged. Status will update to In Process.`}
               </p>
             </div>
-
-            {/* Compact data snapshot */}
-            <div className="border-t pt-3 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">Data Collected</span>
-                <span className="text-muted-foreground">{filledCount}/{criticalFieldStatus.length}</span>
-              </div>
-              <Progress value={Math.round((filledCount / criticalFieldStatus.length) * 100)} className="h-1.5" />
-              {missingCount > 0 && (
-                <div className="space-y-0.5">
-                  <p className="text-xs font-medium text-muted-foreground">Still needed:</p>
-                  {criticalFieldStatus.filter(f => !f.filled).map(field => (
-                    <button
-                      key={field.key}
-                      type="button"
-                      onClick={() => scrollToField(field.key)}
-                      className="block text-xs text-amber-600 pl-2 hover:text-amber-800 cursor-pointer text-left"
-                    >
-                      - {field.label}
-                    </button>
-                  ))}
-                  <p className="text-xs text-muted-foreground mt-1">
-                    Gather during your first call.
-                  </p>
-                </div>
-              )}
-            </div>
           </div>
         )}
 
@@ -303,38 +228,6 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </div>
             )}
 
-            {/* Intake Progress (6–8 items only) */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="font-medium">Intake Progress</span>
-                <span className="text-muted-foreground">{intakeCompleted}/{intakeTotal}</span>
-              </div>
-              <Progress value={intakeProgressPercent} className="h-2" />
-            </div>
-
-            {/* Compact missing items (full checklist now lives inline in the form) */}
-            {incompleteIntakeItems.length > 0 ? (
-              <div className="space-y-1.5">
-                <h4 className="text-xs font-medium text-muted-foreground">Still needed:</h4>
-                {incompleteIntakeItems.map(item => (
-                  <button
-                    key={item.key}
-                    type="button"
-                    onClick={() => scrollToField(item.key)}
-                    className="flex items-center gap-2 text-sm py-0.5 px-2 w-full text-left rounded hover:bg-muted/50 transition-colors cursor-pointer"
-                  >
-                    <Circle className="h-3 w-3 text-muted-foreground/40 shrink-0" />
-                    <span className="underline decoration-muted-foreground/30 underline-offset-2">{item.label}</span>
-                  </button>
-                ))}
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 dark:bg-green-950/40 dark:text-green-200 border border-green-200 dark:border-green-800 rounded-lg p-3">
-                <CheckCircle2 className="h-4 w-4 shrink-0" />
-                All intake items complete!
-              </div>
-            )}
-
             {/* Ready to Schedule */}
             <div className="border-t pt-3">
               <Button
@@ -354,20 +247,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </Button>
               {!isIntakeComplete() && (
                 <p className="text-xs text-amber-600 text-center mt-1.5">
-                  You can still schedule, but you <strong>must</strong> confirm these before the day of: sandwich count, sandwich type (ideally several days before).
-                  {(!intake.eventDate || !(intake.eventAddress || intake.location)) && (
-                    <span className="block mt-1">
-                      Also missing: {[
-                        !intake.eventDate && 'event date',
-                        !(intake.eventAddress || intake.location) && 'location',
-                      ].filter(Boolean).join(', ')}
-                    </span>
-                  )}
-                </p>
-              )}
-              {isIntakeComplete() && incompleteIntakeItems.length > 0 && (
-                <p className="text-xs text-muted-foreground text-center mt-1.5">
-                  {incompleteIntakeItems.length} optional item(s) remaining
+                  Some intake fields are still incomplete — check the form sections above.
                 </p>
               )}
             </div>
