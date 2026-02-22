@@ -2,8 +2,18 @@ import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { IntakeRecord, SECTION_CHECKLIST_MAP, computeSectionStatus, computeSectionProgress, type SectionStatus } from "@/lib/types";
-import { format } from "date-fns";
+import {
+  IntakeRecord,
+  SECTION_CHECKLIST_MAP,
+  DAY_OF_CHECKLIST_ITEMS,
+  POST_EVENT_CHECKLIST_ITEMS,
+  DAY_OF_GROUP_LABELS,
+  AUDIENCE_LABELS,
+  computeSectionStatus,
+  computeSectionProgress,
+  type ChecklistItemDef,
+} from "@/lib/types";
+import { format, differenceInDays } from "date-fns";
 import {
   Form,
   FormControl,
@@ -31,9 +41,10 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Circle, Camera, Truck, Users, Mic, ThermometerSnowflake } from "lucide-react";
+import { AlertTriangle, Copy, Save, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera, Truck, Users, Mic, ThermometerSnowflake, Calendar, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
@@ -97,38 +108,6 @@ const intakeSchema = z.object({
 
 type IntakeFormValues = z.infer<typeof intakeSchema>;
 
-function SectionStatusIndicator({ status, filled, total }: { status: SectionStatus; filled: number; total: number }) {
-  if (total === 0) return null;
-  if (status === 'complete') {
-    return (
-      <span className="inline-flex items-center gap-1 ml-2" aria-label={`${filled} of ${total} items complete`}>
-        <CheckCircle2 className="h-4 w-4 text-green-500" />
-        <span className="text-xs text-green-600 font-medium">{filled}/{total}</span>
-      </span>
-    );
-  }
-  if (status === 'partial') {
-    return (
-      <span className="inline-flex items-center gap-1 ml-2" aria-label={`${filled} of ${total} items complete`}>
-        <div className="h-4 w-4 rounded-full border-2 border-amber-400 flex items-center justify-center">
-          <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
-        </div>
-        <span className="text-xs text-amber-600 font-medium">{filled}/{total}</span>
-      </span>
-    );
-  }
-  return (
-    <span className="inline-flex items-center gap-1 ml-2" aria-label={`0 of ${total} items complete`}>
-      <Circle className="h-4 w-4 text-muted-foreground/40" />
-      <span className="text-xs text-muted-foreground">{filled}/{total}</span>
-    </span>
-  );
-}
-
-function FieldCompletionCheck({ isComplete }: { isComplete: boolean }) {
-  if (!isComplete) return null;
-  return <CheckCircle2 className="h-3.5 w-3.5 text-green-500 inline-block ml-1 shrink-0" />;
-}
 
 export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const updateMutation = useUpdateIntakeRecord();
@@ -408,8 +387,6 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   ]);
 
   const getSectionStatus = (sectionKey: string) => sectionStatuses.find(s => s.sectionKey === sectionKey);
-  const isFieldComplete = (sectionKey: string, fieldKey: string) =>
-    getSectionStatus(sectionKey)?.fieldStatuses.find(f => f.key === fieldKey)?.complete ?? false;
 
   // Auto-set requiresRefrigeration based on sandwich types (deli meats need fridge) or next-day pickup
   const isDeli = sandwichPlan.some((e: SandwichPlanEntry) => e.type === 'turkey' || e.type === 'ham' || e.type === 'chicken');
@@ -432,6 +409,57 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     const hasSandwichCount = (v.sandwichCount ?? 0) > 0;
     const hasSandwichType = !!v.sandwichType;
     return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType;
+  };
+
+  // Event urgency
+  const daysUntilEvent = intake.eventDate
+    ? differenceInDays(new Date(intake.eventDate), new Date())
+    : null;
+  const isUrgent = daysUntilEvent !== null && daysUntilEvent <= 7 && daysUntilEvent >= 0;
+  const eventPassed = daysUntilEvent !== null && daysUntilEvent < 0;
+
+  // Intake progress pill (7 items from event section)
+  const intakeProgress = getSectionStatus('event');
+  const intakeFilledCount = intakeProgress?.progress.filled ?? 0;
+  const intakeTotalCount = intakeProgress?.progress.total ?? 0;
+
+  // Day-of and post-event checklist state (from intakeChecklist jsonb)
+  const checklistState = useMemo(() => {
+    const state: Record<string, boolean> = {};
+    for (const item of [...DAY_OF_CHECKLIST_ITEMS, ...POST_EVENT_CHECKLIST_ITEMS]) {
+      if (item.derivedFrom) {
+        state[item.key] = item.derivedFrom(intake);
+      } else {
+        state[item.key] = intake.intakeChecklist?.[item.key] === true;
+      }
+    }
+    return state;
+  }, [intake]);
+
+  const dayOfCompleted = DAY_OF_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
+  const dayOfTotal = DAY_OF_CHECKLIST_ITEMS.length;
+  const postEventCompleted = POST_EVENT_CHECKLIST_ITEMS.filter((i) => checklistState[i.key]).length;
+  const postEventTotal = POST_EVENT_CHECKLIST_ITEMS.length;
+
+  const groupedDayOfItems = useMemo(() => {
+    const groups: Record<string, ChecklistItemDef[]> = {};
+    for (const item of DAY_OF_CHECKLIST_ITEMS) {
+      if (!groups[item.group]) groups[item.group] = [];
+      groups[item.group].push(item);
+    }
+    return groups;
+  }, []);
+
+  const handleChecklistToggle = (key: string, checked: boolean) => {
+    const updated = { ...intake.intakeChecklist, [key]: checked };
+    updateMutation.mutate(
+      { id: intake.id, data: { intakeChecklist: updated } },
+      {
+        onSuccess: () => {
+          queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+        },
+      }
+    );
   };
 
   // --- Transport & Staffing: stored in intakeChecklist ---
@@ -477,49 +505,35 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-20">
-      {/* Header Actions */}
-      <div className="flex flex-col gap-3 bg-card p-4 rounded-lg border shadow-sm sticky top-0 z-10">
-        <div className="flex items-center gap-4">
+      {/* Sticky Action Bar */}
+      <div className="bg-card p-3 rounded-lg border shadow-sm sticky top-0 z-10">
+        <div className="flex items-center gap-3 flex-wrap">
+          {/* Left: Status dropdown */}
           <FormField
             control={form.control}
             name="status"
             render={({ field }) => (
               <Select onValueChange={field.onChange} value={field.value}>
-                <SelectTrigger className="w-[180px] h-10 border-primary/20 bg-primary/5 font-medium text-primary">
+                <SelectTrigger className="w-[150px] h-9 border-primary/20 bg-primary/5 font-medium text-primary text-sm">
                   <SelectValue placeholder="Status" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="New" disabled={currentStatus !== "New"}>New</SelectItem>
                   <SelectItem value="In Process" disabled={currentStatus === "Scheduled" || currentStatus === "Completed"}>In Process</SelectItem>
-                  <SelectItem
-                    value="Scheduled"
-                    disabled={currentStatus === "Completed"}
-                  >
-                    Scheduled
-                  </SelectItem>
+                  <SelectItem value="Scheduled" disabled={currentStatus === "Completed"}>Scheduled</SelectItem>
                   <SelectItem value="Completed">Completed</SelectItem>
                 </SelectContent>
               </Select>
             )}
           />
-          {lastSaved && (
-            <span className="text-xs text-muted-foreground flex items-center gap-1 animate-in fade-in">
-              <Save className="h-3 w-3" />
-              Saved {format(lastSaved, "h:mm:ss a")}
-            </span>
-          )}
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" onClick={copySummary}>
-            <Copy className="h-4 w-4 mr-2" />
+
+          {/* Middle: utility buttons */}
+          <Button variant="outline" size="sm" onClick={copySummary} className="h-9">
+            <Copy className="h-3.5 w-3.5 mr-1.5" />
             Copy Summary
           </Button>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => setContactLogOpen(true)}
-          >
-            <MessageSquare className="h-4 w-4 mr-2" />
+          <Button size="sm" variant="outline" onClick={() => setContactLogOpen(true)} className="h-9">
+            <MessageSquare className="h-3.5 w-3.5 mr-1.5" />
             Log Contact
             {(intake.contactAttempts ?? 0) > 0 && (
               <Badge variant="secondary" className="ml-1.5 h-5 px-1.5 text-[10px]">
@@ -527,58 +541,117 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </Badge>
             )}
           </Button>
-          {intake.status !== 'Completed' && (
-            <>
-              {(intake.status === 'New' || intake.status === 'In Process') && intake.externalEventId && (
-                <Button
-                  size="sm"
-                  onClick={handleMarkScheduled}
-                  disabled={pushMutation.isPending || updateMutation.isPending}
-                  className="bg-teal-600 hover:bg-teal-700 text-white"
-                >
-                  {pushMutation.isPending ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <Send className="h-4 w-4 mr-2" />
-                  )}
-                  Mark Scheduled
-                </Button>
-              )}
-              {intake.status === 'Scheduled' && (
-                <Button
-                  size="sm"
-                  onClick={handleMarkCompleted}
-                  disabled={pushMutation.isPending || updateMutation.isPending}
-                  className="bg-green-600 hover:bg-green-700 text-white"
-                >
-                  {(pushMutation.isPending || updateMutation.isPending) ? (
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                  ) : (
-                    <CheckCircle2 className="h-4 w-4 mr-2" />
-                  )}
-                  Mark Completed
-                </Button>
-              )}
-            </>
-          )}
+
+          {/* Right: primary action + progress pill */}
+          <div className="flex items-center gap-2 ml-auto">
+            {lastSaved && (
+              <span className="text-xs text-muted-foreground flex items-center gap-1 animate-in fade-in">
+                <Save className="h-3 w-3" />
+                {format(lastSaved, "h:mm a")}
+              </span>
+            )}
+
+            {/* Progress pill for In Process */}
+            {currentStatus === 'In Process' && (
+              <span className={cn(
+                "text-xs font-medium px-2.5 py-1 rounded-full",
+                intakeFilledCount === intakeTotalCount
+                  ? "bg-green-100 text-green-700"
+                  : "bg-amber-100 text-amber-700"
+              )}>
+                {intakeFilledCount}/{intakeTotalCount} complete
+              </span>
+            )}
+
+            {/* Primary action button */}
+            {(currentStatus === 'New' || currentStatus === 'In Process') && (
+              <Button
+                size="sm"
+                onClick={handleMarkScheduled}
+                disabled={pushMutation.isPending || updateMutation.isPending}
+                className="bg-teal-600 hover:bg-teal-700 text-white h-9"
+              >
+                {pushMutation.isPending ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <Send className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Mark Scheduled
+              </Button>
+            )}
+            {currentStatus === 'Scheduled' && (
+              <Button
+                size="sm"
+                onClick={handleMarkCompleted}
+                disabled={pushMutation.isPending || updateMutation.isPending}
+                className="bg-green-600 hover:bg-green-700 text-white h-9"
+              >
+                {(pushMutation.isPending || updateMutation.isPending) ? (
+                  <Loader2 className="h-3.5 w-3.5 mr-1.5 animate-spin" />
+                ) : (
+                  <CheckCircle2 className="h-3.5 w-3.5 mr-1.5" />
+                )}
+                Mark Completed
+              </Button>
+            )}
+          </div>
         </div>
+
+        {/* Urgency warning banner */}
+        {isUrgent && currentStatus !== 'Completed' && (
+          <div className="flex items-center gap-2 mt-2 p-2 bg-orange-50 border border-orange-200 rounded text-sm text-orange-800">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            <span className="font-medium">Event in {daysUntilEvent} day{daysUntilEvent !== 1 ? 's' : ''}!</span>
+            <span className="text-orange-600">Consider scheduling now.</span>
+          </div>
+        )}
+
+        {/* Refrigeration warning banner */}
+        {isDeli && !refrigerationConfirmed && (currentStatus === 'In Process' || currentStatus === 'New') && (
+          <div className="flex items-center gap-2 mt-2 p-2 bg-amber-50 border border-amber-200 rounded text-sm text-amber-800">
+            <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+            Refrigeration not confirmed — deli meat requires confirmed refrigeration before scheduling.
+          </div>
+        )}
+
+        {/* Scheduling incomplete warning */}
+        {(currentStatus === 'In Process') && !isIntakeComplete() && (
+          <p className="text-xs text-amber-600 mt-2">
+            You can still schedule, but you <strong>must</strong> confirm sandwich count and type before the event date.
+          </p>
+        )}
       </div>
+
+      {/* Event countdown for Scheduled status */}
+      {currentStatus === 'Scheduled' && intake.eventDate && (
+        <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-center justify-center gap-3 text-center">
+          <Calendar className="h-5 w-5 text-teal-600" />
+          <div>
+            <span className="font-medium text-teal-900">{format(new Date(intake.eventDate), "MMMM d, yyyy")}</span>
+            {daysUntilEvent !== null && daysUntilEvent >= 0 && (
+              <span className="text-sm text-teal-700 ml-2">
+                — {daysUntilEvent === 0 ? "Today!" : `${daysUntilEvent} day${daysUntilEvent !== 1 ? 's' : ''} away`}
+              </span>
+            )}
+            {eventPassed && (
+              <span className="text-sm text-muted-foreground ml-2">— Event has passed</span>
+            )}
+          </div>
+        </div>
+      )}
 
       <Form {...form}>
         <form className="space-y-6">
-          <Accordion type="multiple" defaultValue={["contact", "event", "logistics"]} className="space-y-4">
+          <Accordion type="multiple" defaultValue={[
+            "contact", "event", "logistics",
+            ...(currentStatus === 'Scheduled' ? ["dayof"] : []),
+            ...(currentStatus === 'Completed' ? ["dayof", "followup"] : []),
+          ]} className="space-y-4">
             
             {/* Contact Information */}
             <AccordionItem value="contact" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
-                <span className="font-semibold text-lg flex items-center gap-2">
-                  1. Contact & Organization
-                  <SectionStatusIndicator
-                    status={getSectionStatus('contact')?.status ?? 'empty'}
-                    filled={getSectionStatus('contact')?.progress.filled ?? 0}
-                    total={getSectionStatus('contact')?.progress.total ?? 0}
-                  />
-                </span>
+                <span className="font-semibold text-lg">1. Contact & Organization</span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
                 <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
@@ -651,7 +724,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="contactEmail"
                     render={({ field }) => (
                       <FormItem id="field-contactEmail">
-                        <FormLabel>Email <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactEmail')} /></FormLabel>
+                        <FormLabel>Email</FormLabel>
                         <FormControl>
                           <Input placeholder="email@example.com" {...field} />
                         </FormControl>
@@ -664,7 +737,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="contactPhone"
                     render={({ field }) => (
                       <FormItem id="field-contactPhone">
-                        <FormLabel>Phone <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactPhone')} /></FormLabel>
+                        <FormLabel>Phone</FormLabel>
                         <FormControl>
                           <Input placeholder="(555) 123-4567" {...field} />
                         </FormControl>
@@ -781,14 +854,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
             {/* Event Details */}
             <AccordionItem value="event" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
-                 <span className="font-semibold text-lg flex items-center gap-2">
-                   2. Event Details
-                   <SectionStatusIndicator
-                     status={getSectionStatus('event')?.status ?? 'empty'}
-                     filled={getSectionStatus('event')?.progress.filled ?? 0}
-                     total={getSectionStatus('event')?.progress.total ?? 0}
-                   />
-                 </span>
+                 <span className="font-semibold text-lg">2. Event Details</span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
                 <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
@@ -800,7 +866,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventDate"
                     render={({ field }) => (
                       <FormItem id="field-event_date">
-                        <FormLabel>Event Date <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_date')} /></FormLabel>
+                        <FormLabel>Event Date</FormLabel>
                         <FormControl>
                           <Input type="date" {...field} className="h-11" />
                         </FormControl>
@@ -829,7 +895,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventStartTime"
                     render={({ field }) => (
                       <FormItem id="field-event_time">
-                        <FormLabel>Start Time <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_time')} /></FormLabel>
+                        <FormLabel>Start Time</FormLabel>
                         <FormDescription className="text-xs">
                           Ask: What time will the event start and end?
                         </FormDescription>
@@ -844,7 +910,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventEndTime"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>End Time <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_time')} /></FormLabel>
+                        <FormLabel>End Time</FormLabel>
                         <FormControl>
                           <Input placeholder="e.g. 2:00 PM" {...field} className="h-11" />
                         </FormControl>
@@ -856,7 +922,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="location"
                     render={({ field }) => (
                       <FormItem id="field-event_address" className="md:col-span-2">
-                        <FormLabel>Location / Address <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_address')} /></FormLabel>
+                        <FormLabel>Location / Address</FormLabel>
                         <FormDescription className="text-xs">
                           Ask: Where will sandwiches be made? (Full address)
                         </FormDescription>
@@ -942,7 +1008,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   </div>
 
                   <div id="field-sandwich_type">
-                    <label className="text-sm font-medium mb-2 block">Sandwiches Planned <FieldCompletionCheck isComplete={isFieldComplete('event', 'sandwich_type') && isFieldComplete('event', 'sandwich_count')} /></label>
+                    <label className="text-sm font-medium mb-2 block">Sandwiches Planned</label>
                     <p className="text-xs text-muted-foreground mb-2">
                       Ask: How many sandwiches do you need, and what types? (Turkey, ham, chicken, or PBJ)
                     </p>
@@ -1375,7 +1441,73 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </AccordionContent>
             </AccordionItem>
 
-            {/* Section 5: Post-Event Follow-Up */}
+            {/* Section 5: Day-Of Checklist — only when Scheduled or Completed */}
+            {(currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
+              <AccordionItem value="dayof" className="border rounded-lg bg-card px-4 shadow-sm">
+                <AccordionTrigger className="hover:no-underline py-4">
+                  <span className="font-semibold text-lg flex items-center gap-2">
+                    5. Day-Of Checklist
+                    <span className={cn(
+                      "text-xs font-medium px-2 py-0.5 rounded-full",
+                      dayOfCompleted === dayOfTotal
+                        ? "bg-green-100 text-green-700"
+                        : dayOfCompleted > 0
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-muted text-muted-foreground"
+                    )}>
+                      {dayOfCompleted}/{dayOfTotal} communicated
+                    </span>
+                  </span>
+                </AccordionTrigger>
+                <AccordionContent className="pt-2 pb-6 space-y-5">
+                  <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                    Confirm these requirements have been communicated to the right people (volunteer group, driver, etc.).
+                  </p>
+                  {dayOfCompleted === dayOfTotal && (
+                    <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg p-3">
+                      <CheckCircle2 className="h-4 w-4 shrink-0" />
+                      All day-of items communicated!
+                    </div>
+                  )}
+                  {Object.entries(groupedDayOfItems).map(([group, items]) => (
+                    <div key={group} className="space-y-1.5">
+                      <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                        {DAY_OF_GROUP_LABELS[group] || group}
+                      </h5>
+                      {items.map(item => {
+                        const checked = checklistState[item.key];
+                        const audienceLabel = item.audience ? AUDIENCE_LABELS[item.audience] : null;
+                        return (
+                          <label
+                            key={item.key}
+                            className={cn(
+                              "flex items-start gap-2 py-1.5 px-3 rounded-md text-sm cursor-pointer transition-colors",
+                              checked ? "text-muted-foreground bg-muted/20" : "hover:bg-muted/50"
+                            )}
+                          >
+                            <Checkbox
+                              checked={checked}
+                              onCheckedChange={(val) => handleChecklistToggle(item.key, val === true)}
+                              className="mt-0.5 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className={checked ? "line-through" : ""}>{item.label}</span>
+                              {audienceLabel && (
+                                <span className="block text-[10px] text-muted-foreground mt-0.5">
+                                  for {audienceLabel}
+                                </span>
+                              )}
+                            </div>
+                          </label>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </AccordionContent>
+              </AccordionItem>
+            )}
+
+            {/* Section 6: Post-Event Follow-Up */}
             <AccordionItem
               value="followup"
               className={cn(
@@ -1385,7 +1517,19 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
             >
               <AccordionTrigger className="hover:no-underline py-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg">5. Post-Event Follow-Up</span>
+                  <span className="font-semibold text-lg">6. Post-Event Follow-Up</span>
+                  {currentStatus === "Completed" && (
+                    <span className={cn(
+                      "text-xs font-medium px-2 py-0.5 rounded-full",
+                      postEventCompleted === postEventTotal
+                        ? "bg-green-100 text-green-700"
+                        : postEventCompleted > 0
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-muted text-muted-foreground"
+                    )}>
+                      {postEventCompleted}/{postEventTotal}
+                    </span>
+                  )}
                   {currentStatus !== "Completed" && (
                     <Badge variant="secondary" className="ml-2 text-xs">
                       Available after Completed
@@ -1452,6 +1596,46 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     </FormItem>
                   )}
                 />
+
+                {/* Post-event checklist items */}
+                <div className="p-4 bg-muted/30 rounded-lg border border-border/50 space-y-2">
+                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wider mb-3">Follow-Up Checklist</h4>
+                  {POST_EVENT_CHECKLIST_ITEMS.map(item => {
+                    const checked = checklistState[item.key];
+                    const isDerived = !!item.derivedFrom;
+                    const showAuto = item.showAutoTag === true && isDerived && checked;
+                    return (
+                      <label
+                        key={item.key}
+                        className={cn(
+                          "flex items-start gap-2 py-1.5 px-3 rounded-md text-sm transition-colors",
+                          showAuto
+                            ? "bg-teal-50 text-teal-800"
+                            : checked
+                              ? "text-muted-foreground bg-muted/20"
+                              : "hover:bg-muted/50 cursor-pointer"
+                        )}
+                      >
+                        <Checkbox
+                          checked={checked}
+                          disabled={isDerived}
+                          onCheckedChange={(val) => {
+                            if (!isDerived) handleChecklistToggle(item.key, val === true);
+                          }}
+                          className="mt-0.5 shrink-0"
+                        />
+                        <span className={checked ? "line-through" : ""}>
+                          {item.label}
+                          {showAuto && (
+                            <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
+                              auto
+                            </span>
+                          )}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
               </AccordionContent>
             </AccordionItem>
           </Accordion>
