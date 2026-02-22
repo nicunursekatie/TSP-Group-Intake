@@ -112,6 +112,16 @@ export default function Dashboard() {
       return matchesSearch && matchesStatus;
     });
 
+    // Default sort: Completed at the bottom, then soonest event date first
+    records = [...records].sort((a, b) => {
+      const aCompleted = a.status === 'Completed' ? 1 : 0;
+      const bCompleted = b.status === 'Completed' ? 1 : 0;
+      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
+      const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
+      const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
+      return dateA - dateB;
+    });
+
     if (sortColumn && sortDirection) {
       records = [...records].sort((a, b) => {
         let cmp = 0;
