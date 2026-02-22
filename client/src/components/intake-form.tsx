@@ -775,7 +775,17 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     </span>
                   </div>
                 )}
-                
+
+                <div>
+                  <label className="text-sm font-medium text-muted-foreground block mb-1">Scheduling & pickup notes</label>
+                  <Textarea
+                    placeholder="Why this date/time? Why next-day pickup? Any scheduling constraints discussed..."
+                    value={(checklist as any).scheduling_pickup_notes || ''}
+                    onChange={(e) => updateChecklist({ scheduling_pickup_notes: e.target.value })}
+                    className="min-h-[60px] text-sm"
+                  />
+                </div>
+
                 <div className="p-4 bg-muted/30 rounded-lg border border-border/50">
                   <h4 className="font-medium text-sm mb-3 text-muted-foreground uppercase tracking-wider">Quantities & Type</h4>
                   <div className="mb-4">
@@ -867,6 +877,15 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                       </p>
                     )}
                   </div>
+                  <div className="mt-3">
+                    <label className="text-sm font-medium text-muted-foreground block mb-1">Sandwich planning notes</label>
+                    <Textarea
+                      placeholder="Why this count/type? Any discussion about types, allergies in the group, changes from original request..."
+                      value={(checklist as any).sandwich_notes || ''}
+                      onChange={(e) => updateChecklist({ sandwich_notes: e.target.value })}
+                      className="min-h-[60px] text-sm"
+                    />
+                  </div>
                 </div>
 
                 <FormField
@@ -913,6 +932,15 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                       </FormItem>
                     )}
                   />
+                  <div>
+                    <label className="text-sm font-medium text-muted-foreground block mb-1">Indoor/outdoor notes</label>
+                    <Textarea
+                      placeholder="e.g. They have a large conference room, pavilion with walls, confirmed AC..."
+                      value={(checklist as any).indoor_notes || ''}
+                      onChange={(e) => updateChecklist({ indoor_notes: e.target.value })}
+                      className="min-h-[60px] text-sm"
+                    />
+                  </div>
 
                   {isDeli && (
                     <>
@@ -983,20 +1011,17 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </AccordionContent>
             </AccordionItem>
 
-            {/* Post-Scheduling Logistics — collect after event is confirmed */}
+            {/* Transport, Staffing & Logistics */}
             <AccordionItem
               value="logistics"
-              className={cn(
-                "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
-                !isPostSchedulingReady && "opacity-70"
-              )}
+              className="border rounded-lg bg-card px-4 shadow-sm"
             >
               <AccordionTrigger className="hover:no-underline py-4">
                 <div className="flex items-center gap-2">
-                  <span className="font-semibold text-lg">3. Post-Scheduling Logistics</span>
+                  <span className="font-semibold text-lg">3. Driver/Speaker/Volunteer Logistics</span>
                   {!isPostSchedulingReady && (
                     <Badge variant="secondary" className="ml-2 text-xs">
-                      Available after Scheduled
+                      Confirm before day-of
                     </Badge>
                   )}
                 </div>
@@ -1042,6 +1067,14 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         Transport checklist items (cooler with ice packs, etc.) apply to whoever is transporting.
                       </p>
                     )}
+                    <div className="pl-6 mt-2">
+                      <Textarea
+                        placeholder="Transport notes: why this arrangement, any special logistics..."
+                        value={(checklist as any).transport_notes || ''}
+                        onChange={(e) => updateChecklist({ transport_notes: e.target.value })}
+                        className="min-h-[50px] text-sm"
+                      />
+                    </div>
                   </div>
 
                   {/* 2. TSP Speaker/Rep */}
@@ -1068,14 +1101,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                           500+ sandwiches — consider assigning a rep
                         </p>
                       )}
-                      {needsSpeaker && (
-                        <Input
-                          placeholder="Context: group requested one, large event, etc."
-                          value={speakerNotes}
-                          onChange={(e) => updateChecklist({ speaker_notes: e.target.value })}
-                          className="text-sm"
-                        />
-                      )}
+                      <Textarea
+                        placeholder={needsSpeaker ? "Why a speaker is needed: group requested one, large event, etc." : "Why no speaker needed, or any notes about this decision..."}
+                        value={speakerNotes}
+                        onChange={(e) => updateChecklist({ speaker_notes: e.target.value })}
+                        className="min-h-[50px] text-sm"
+                      />
                     </div>
                   </div>
 
@@ -1085,7 +1116,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                       <Users className="h-4 w-4 text-muted-foreground" />
                       <Label className="text-sm font-medium">How many TSP volunteers needed?</Label>
                     </div>
-                    <div className="pl-6">
+                    <div className="pl-6 space-y-2">
                       <Input
                         type="number"
                         min={0}
@@ -1093,6 +1124,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         onChange={(e) => updateChecklist({ volunteer_count_needed: parseInt(e.target.value) || 0 })}
                         placeholder="0 = none needed"
                         className="w-[140px] font-mono"
+                      />
+                      <Textarea
+                        placeholder="Why this number? What will volunteers do? Any special requirements..."
+                        value={(checklist as any).volunteer_notes || ''}
+                        onChange={(e) => updateChecklist({ volunteer_notes: e.target.value })}
+                        className="min-h-[50px] text-sm"
                       />
                     </div>
                   </div>
@@ -1121,6 +1158,12 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                           {sandwichCount >= 1000 ? '1000+ sandwiches' : 'Next-day pickup'} — consider a refrigerated van
                         </p>
                       )}
+                      <Textarea
+                        placeholder={needsVan ? "Why van is needed: volume, distance, next-day, etc." : "Why no van needed, or any transport temperature notes..."}
+                        value={(checklist as any).van_notes || ''}
+                        onChange={(e) => updateChecklist({ van_notes: e.target.value })}
+                        className="min-h-[50px] text-sm"
+                      />
                     </div>
                   </div>
                 </div>
