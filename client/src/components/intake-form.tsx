@@ -268,6 +268,59 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     },
   });
 
+  // Re-sync form when the intake prop updates (e.g. after refetch or external change)
+  // keepDirtyValues: true preserves any fields the user has actively edited
+  useEffect(() => {
+    form.reset(
+      {
+        organizationName: intake.organizationName,
+        organizationCategory: intake.organizationCategory || "",
+        department: intake.department || "",
+        contactName: intake.contactName,
+        contactEmail: intake.contactEmail || "",
+        contactPhone: intake.contactPhone || "",
+        preferredContactMethod: intake.preferredContactMethod || "",
+        backupContactFirstName: intake.backupContactFirstName || "",
+        backupContactLastName: intake.backupContactLastName || "",
+        backupContactEmail: intake.backupContactEmail || "",
+        backupContactPhone: intake.backupContactPhone || "",
+        backupContactRole: intake.backupContactRole || "",
+        eventDate: intake.eventDate
+          ? format(new Date(intake.eventDate), "yyyy-MM-dd")
+          : intake.scheduledEventDate
+            ? format(new Date(intake.scheduledEventDate), "yyyy-MM-dd")
+            : intake.desiredEventDate
+              ? format(new Date(intake.desiredEventDate), "yyyy-MM-dd")
+              : "",
+        eventStartTime: intake.eventStartTime || "",
+        eventEndTime: intake.eventEndTime || "",
+        eventTime: intake.eventTime || "",
+        location: intake.location || "",
+        eventAddress: intake.eventAddress || "",
+        attendeeCount: intake.attendeeCount,
+        sandwichCount: intake.sandwichCount,
+        actualSandwichCount: intake.actualSandwichCount ?? undefined,
+        sandwichType: intake.sandwichType || "",
+        message: intake.message || "",
+        dietaryRestrictions: intake.dietaryRestrictions || "",
+        requiresRefrigeration: intake.requiresRefrigeration,
+        hasIndoorSpace: intake.hasIndoorSpace,
+        hasRefrigeration: intake.hasRefrigeration,
+        refrigerationConfirmed: intake.refrigerationConfirmed ?? false,
+        refrigerationNotes: intake.refrigerationNotes || "",
+        pickupTimeWindow: intake.pickupTimeWindow || "",
+        nextDayPickup: intake.nextDayPickup ?? false,
+        deliveryInstructions: intake.deliveryInstructions || "",
+        status: intake.status,
+        planningNotes: intake.planningNotes || "",
+        schedulingNotes: intake.schedulingNotes || "",
+        nextAction: intake.nextAction || "",
+        internalNotes: intake.internalNotes || "",
+      },
+      { keepDirtyValues: true }
+    );
+  }, [intake.updatedAt]); // Only re-sync when the record actually changes
+
   // Debounced autosave — only sends changed fields to avoid overwriting DB data
   useEffect(() => {
     let timeoutId: NodeJS.Timeout;
