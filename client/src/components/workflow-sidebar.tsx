@@ -362,14 +362,15 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </Button>
               {!isIntakeComplete() && (
                 <p className="text-xs text-amber-600 text-center mt-1.5">
-                  You can still schedule, but try to confirm these before the day of: {
-                    [
-                      !intake.eventDate && 'event date',
-                      !(intake.eventAddress || intake.location) && 'location',
-                      intake.sandwichCount <= 0 && 'sandwich count',
-                      !intake.sandwichType && 'sandwich type',
-                    ].filter(Boolean).join(', ')
-                  }
+                  You can still schedule, but you <strong>must</strong> confirm these before the day of: sandwich count, sandwich type (ideally several days before).
+                  {(!intake.eventDate || !(intake.eventAddress || intake.location)) && (
+                    <span className="block mt-1">
+                      Also missing: {[
+                        !intake.eventDate && 'event date',
+                        !(intake.eventAddress || intake.location) && 'location',
+                      ].filter(Boolean).join(', ')}
+                    </span>
+                  )}
                 </p>
               )}
               {isIntakeComplete() && incompleteIntakeItems.length > 0 && (
