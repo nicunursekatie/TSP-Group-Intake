@@ -55,7 +55,7 @@ export default function IntakePage() {
       </div>
 
       {/* Right Sidebar - Workflow */}
-      <div className="hidden lg:block w-96 h-full border-l bg-sidebar/30">
+      <div className="hidden lg:block w-80 h-full border-l bg-sidebar/30">
         <WorkflowSidebar intake={record} tasks={tasks} tasksLoading={tasksLoading} />
       </div>
     </div>

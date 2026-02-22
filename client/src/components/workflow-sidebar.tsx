@@ -154,7 +154,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
                 ? "Post-Event"
                 : intake.status === "Scheduled"
                   ? "Workflow"
-                  : "Intake Checklist"}
+                  : "Actions"}
             </h3>
             <Badge variant="outline" className="text-xs">
               {intake.status}
@@ -196,33 +196,23 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               </p>
             </div>
 
-            {/* Data snapshot: what we already have vs what's missing */}
+            {/* Compact data snapshot */}
             <div className="border-t pt-3 space-y-2">
-              <div className="flex items-center gap-1.5 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                <Info className="h-3 w-3" />
-                Data from request ({filledCount}/{criticalFieldStatus.length})
+              <div className="flex items-center justify-between text-sm">
+                <span className="font-medium">Data Collected</span>
+                <span className="text-muted-foreground">{filledCount}/{criticalFieldStatus.length}</span>
               </div>
-              <div className="space-y-1">
-                {criticalFieldStatus.map(field => (
-                  <div key={field.key} className="flex items-center gap-2 text-sm py-0.5 px-2 rounded">
-                    {field.filled ? (
-                      <CheckCircle2 className="h-3.5 w-3.5 text-green-500 shrink-0" />
-                    ) : (
-                      <Circle className="h-3.5 w-3.5 text-muted-foreground/40 shrink-0" />
-                    )}
-                    <span className={field.filled ? "text-muted-foreground" : "text-foreground"}>
-                      {field.label}
-                    </span>
-                    {!field.filled && (
-                      <span className="text-[10px] text-amber-600 font-medium ml-auto">needed</span>
-                    )}
-                  </div>
-                ))}
-              </div>
+              <Progress value={Math.round((filledCount / criticalFieldStatus.length) * 100)} className="h-1.5" />
               {missingCount > 0 && (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Gather the missing info during your first call.
-                </p>
+                <div className="space-y-0.5">
+                  <p className="text-xs font-medium text-muted-foreground">Still needed:</p>
+                  {criticalFieldStatus.filter(f => !f.filled).map(field => (
+                    <p key={field.key} className="text-xs text-amber-600 pl-2">- {field.label}</p>
+                  ))}
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Gather during your first call.
+                  </p>
+                </div>
               )}
             </div>
           </div>
@@ -282,66 +272,23 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               <Progress value={intakeProgressPercent} className="h-2" />
             </div>
 
-            {/* Intake Checklist Items */}
-            <div className="space-y-1.5">
-              <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                Complete during the intake call
-              </h4>
-              <div className="space-y-1">
-                {INTAKE_CHECKLIST_ITEMS.map(item => {
-                  const checked = checklistState[item.key];
-                  const isDerived = !!item.derivedFrom;
-                  const showAuto = item.showAutoTag === true && isDerived && checked;
-
-                  // Special styling for refrigeration item when deli types selected
-                  const isRefrigerationItem = item.key === 'refrigeration';
-                  const showAmber = isRefrigerationItem && recordHasDeli && !checked;
-                  // Grey out refrigeration for PBJ-only events
-                  const isNA = isRefrigerationItem && !recordHasDeli && intake.sandwichType;
-
-                  return (
-                    <label
-                      key={item.key}
-                      className={`flex items-start gap-2 py-1 px-2 rounded text-sm transition-colors ${
-                        isNA
-                          ? "opacity-40"
-                          : showAmber
-                            ? "bg-amber-50 dark:bg-amber-950/30 text-amber-800 dark:text-amber-200 border border-amber-200 dark:border-amber-800"
-                            : showAuto
-                              ? "bg-teal-50 dark:bg-teal-950/40 text-teal-800 dark:text-teal-200"
-                              : checked
-                                ? "text-muted-foreground"
-                                : "hover:bg-muted/50 cursor-pointer"
-                      }`}
-                    >
-                      <Checkbox
-                        checked={checked}
-                        disabled={isDerived}
-                        onCheckedChange={(val) => {
-                          if (!isDerived) {
-                            handleChecklistToggle(item.key, val === true);
-                          }
-                        }}
-                        className="mt-0.5 shrink-0"
-                      />
-                      <span className={`flex-1 ${checked ? "line-through" : ""}`}>
-                        {item.label}
-                        {showAuto && (
-                          <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
-                            auto
-                          </span>
-                        )}
-                        {isNA && (
-                          <span className="text-[10px] ml-1.5 px-1.5 py-0.5 rounded bg-muted font-medium">
-                            N/A (PBJ only)
-                          </span>
-                        )}
-                      </span>
-                    </label>
-                  );
-                })}
+            {/* Compact missing items (full checklist now lives inline in the form) */}
+            {incompleteIntakeItems.length > 0 ? (
+              <div className="space-y-1.5">
+                <h4 className="text-xs font-medium text-muted-foreground">Still needed:</h4>
+                {incompleteIntakeItems.map(item => (
+                  <div key={item.key} className="flex items-center gap-2 text-sm py-0.5 px-2">
+                    <Circle className="h-3 w-3 text-muted-foreground/40 shrink-0" />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 dark:bg-green-950/40 dark:text-green-200 border border-green-200 dark:border-green-800 rounded-lg p-3">
+                <CheckCircle2 className="h-4 w-4 shrink-0" />
+                All intake items complete!
+              </div>
+            )}
 
             {/* Ready to Schedule */}
             <div className="border-t pt-3">

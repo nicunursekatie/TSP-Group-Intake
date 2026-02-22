@@ -215,6 +215,60 @@ export const CRITICAL_INTAKE_FIELDS: { key: string; label: string; check: (r: In
   { key: 'refrigeration', label: 'Refrigeration', check: (r) => !hasDeli(r) || r.refrigerationConfirmed },
 ];
 
+// --- Section-level completion tracking (for inline progress indicators) ---
+
+export type SectionStatus = 'complete' | 'partial' | 'empty';
+
+export interface SectionTrackedField {
+  key: string;
+  label: string;
+  check: (r: IntakeRecord) => boolean;
+}
+
+export interface SectionCompletionDef {
+  sectionKey: string;
+  sectionLabel: string;
+  trackedFields: SectionTrackedField[];
+}
+
+export const SECTION_CHECKLIST_MAP: SectionCompletionDef[] = [
+  {
+    sectionKey: 'contact',
+    sectionLabel: 'Contact & Organization',
+    trackedFields: [
+      { key: 'contactEmail', label: 'Contact email', check: (r) => !!r.contactEmail },
+      { key: 'contactPhone', label: 'Contact phone', check: (r) => !!r.contactPhone },
+    ],
+  },
+  {
+    sectionKey: 'event',
+    sectionLabel: 'Event Details',
+    trackedFields: [
+      { key: 'event_address', label: 'Event address', check: (r) => !!(r.eventAddress || r.location) },
+      { key: 'event_date', label: 'Event date', check: (r) => !!r.eventDate },
+      { key: 'event_time', label: 'Event time (start and end)', check: (r) => !!(r.eventStartTime && r.eventEndTime) },
+      { key: 'sandwich_type', label: 'Sandwich type', check: (r) => !!r.sandwichType },
+      { key: 'sandwich_count', label: 'Sandwich count', check: (r) => r.sandwichCount > 0 },
+      { key: 'refrigeration', label: 'Refrigeration confirmed', check: (r) => !!r.refrigerationConfirmed },
+      { key: 'indoor_confirmed', label: 'Indoor space confirmed', check: (r) => !!r.hasIndoorSpace },
+    ],
+  },
+];
+
+export function computeSectionStatus(section: SectionCompletionDef, record: IntakeRecord): SectionStatus {
+  if (section.trackedFields.length === 0) return 'complete';
+  const filled = section.trackedFields.filter(f => f.check(record)).length;
+  if (filled === section.trackedFields.length) return 'complete';
+  if (filled > 0) return 'partial';
+  return 'empty';
+}
+
+export function computeSectionProgress(section: SectionCompletionDef, record: IntakeRecord): { filled: number; total: number } {
+  const total = section.trackedFields.length;
+  const filled = section.trackedFields.filter(f => f.check(record)).length;
+  return { filled, total };
+}
+
 // Initial seed data for the store
 export const MOCK_USERS: User[] = [
   { id: 'u1', email: 'owner@tsp.org', name: 'Intake Owner', role: 'owner' },

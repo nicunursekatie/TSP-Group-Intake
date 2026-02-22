@@ -1,8 +1,8 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback, useRef, useMemo } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { IntakeRecord } from "@/lib/types";
+import { IntakeRecord, SECTION_CHECKLIST_MAP, computeSectionStatus, computeSectionProgress, type SectionStatus } from "@/lib/types";
 import { format } from "date-fns";
 import {
   Form,
@@ -33,7 +33,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera, Truck, Users, Mic, ThermometerSnowflake } from "lucide-react";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Circle, Camera, Truck, Users, Mic, ThermometerSnowflake } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
@@ -96,6 +96,39 @@ const intakeSchema = z.object({
 });
 
 type IntakeFormValues = z.infer<typeof intakeSchema>;
+
+function SectionStatusIndicator({ status, filled, total }: { status: SectionStatus; filled: number; total: number }) {
+  if (total === 0) return null;
+  if (status === 'complete') {
+    return (
+      <span className="inline-flex items-center gap-1 ml-2" aria-label={`${filled} of ${total} items complete`}>
+        <CheckCircle2 className="h-4 w-4 text-green-500" />
+        <span className="text-xs text-green-600 font-medium">{filled}/{total}</span>
+      </span>
+    );
+  }
+  if (status === 'partial') {
+    return (
+      <span className="inline-flex items-center gap-1 ml-2" aria-label={`${filled} of ${total} items complete`}>
+        <div className="h-4 w-4 rounded-full border-2 border-amber-400 flex items-center justify-center">
+          <div className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+        </div>
+        <span className="text-xs text-amber-600 font-medium">{filled}/{total}</span>
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 ml-2" aria-label={`0 of ${total} items complete`}>
+      <Circle className="h-4 w-4 text-muted-foreground/40" />
+      <span className="text-xs text-muted-foreground">{filled}/{total}</span>
+    </span>
+  );
+}
+
+function FieldCompletionCheck({ isComplete }: { isComplete: boolean }) {
+  if (!isComplete) return null;
+  return <CheckCircle2 className="h-3.5 w-3.5 text-green-500 inline-block ml-1 shrink-0" />;
+}
 
 export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const updateMutation = useUpdateIntakeRecord();
@@ -283,6 +316,48 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
   const refrigerationConfirmed = form.watch("refrigerationConfirmed");
   const nextDayPickup = form.watch("nextDayPickup");
 
+  // Watched values for inline section progress indicators
+  const watchedContactEmail = form.watch("contactEmail");
+  const watchedContactPhone = form.watch("contactPhone");
+  const watchedEventDate = form.watch("eventDate");
+  const watchedEventStartTime = form.watch("eventStartTime");
+  const watchedEventEndTime = form.watch("eventEndTime");
+  const watchedLocation = form.watch("location");
+  const watchedEventAddress = form.watch("eventAddress");
+  const watchedSandwichType = form.watch("sandwichType");
+
+  const sectionStatuses = useMemo(() => {
+    const liveRecord: IntakeRecord = {
+      ...intake,
+      contactEmail: watchedContactEmail || '',
+      contactPhone: watchedContactPhone || '',
+      eventDate: watchedEventDate || '',
+      eventStartTime: watchedEventStartTime || '',
+      eventEndTime: watchedEventEndTime || '',
+      location: watchedLocation || '',
+      eventAddress: watchedEventAddress || '',
+      sandwichType: watchedSandwichType || '',
+      sandwichCount: sandwichCount || 0,
+      refrigerationConfirmed: refrigerationConfirmed || false,
+      hasIndoorSpace: hasIndoor || false,
+    };
+    return SECTION_CHECKLIST_MAP.map(section => ({
+      ...section,
+      status: computeSectionStatus(section, liveRecord),
+      progress: computeSectionProgress(section, liveRecord),
+      fieldStatuses: section.trackedFields.map(f => ({ key: f.key, complete: f.check(liveRecord) })),
+    }));
+  }, [
+    intake, watchedContactEmail, watchedContactPhone,
+    watchedEventDate, watchedEventStartTime, watchedEventEndTime,
+    watchedLocation, watchedEventAddress, watchedSandwichType,
+    sandwichCount, refrigerationConfirmed, hasIndoor,
+  ]);
+
+  const getSectionStatus = (sectionKey: string) => sectionStatuses.find(s => s.sectionKey === sectionKey);
+  const isFieldComplete = (sectionKey: string, fieldKey: string) =>
+    getSectionStatus(sectionKey)?.fieldStatuses.find(f => f.key === fieldKey)?.complete ?? false;
+
   // Auto-set requiresRefrigeration based on sandwich types (deli meats need fridge) or next-day pickup
   const isDeli = sandwichPlan.some((e: SandwichPlanEntry) => e.type === 'turkey' || e.type === 'ham' || e.type === 'chicken');
   useEffect(() => {
@@ -445,7 +520,11 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               <AccordionTrigger className="hover:no-underline py-4">
                 <span className="font-semibold text-lg flex items-center gap-2">
                   1. Contact & Organization
-                  {!form.getValues("organizationName") && <Badge variant="outline" className="ml-2 text-xs">Pending</Badge>}
+                  <SectionStatusIndicator
+                    status={getSectionStatus('contact')?.status ?? 'empty'}
+                    filled={getSectionStatus('contact')?.progress.filled ?? 0}
+                    total={getSectionStatus('contact')?.progress.total ?? 0}
+                  />
                 </span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
@@ -519,7 +598,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="contactEmail"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Email</FormLabel>
+                        <FormLabel>Email <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactEmail')} /></FormLabel>
                         <FormControl>
                           <Input placeholder="email@example.com" {...field} />
                         </FormControl>
@@ -532,7 +611,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="contactPhone"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Phone</FormLabel>
+                        <FormLabel>Phone <FieldCompletionCheck isComplete={isFieldComplete('contact', 'contactPhone')} /></FormLabel>
                         <FormControl>
                           <Input placeholder="(555) 123-4567" {...field} />
                         </FormControl>
@@ -649,7 +728,14 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
             {/* Event Details */}
             <AccordionItem value="event" className="border rounded-lg bg-card px-4 shadow-sm">
               <AccordionTrigger className="hover:no-underline py-4">
-                 <span className="font-semibold text-lg">2. Event Details</span>
+                 <span className="font-semibold text-lg flex items-center gap-2">
+                   2. Event Details
+                   <SectionStatusIndicator
+                     status={getSectionStatus('event')?.status ?? 'empty'}
+                     filled={getSectionStatus('event')?.progress.filled ?? 0}
+                     total={getSectionStatus('event')?.progress.total ?? 0}
+                   />
+                 </span>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
                 <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
@@ -661,7 +747,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventDate"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Event Date</FormLabel>
+                        <FormLabel>Event Date <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_date')} /></FormLabel>
                         <FormControl>
                           <Input type="date" {...field} className="h-11" />
                         </FormControl>
@@ -690,7 +776,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventStartTime"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Start Time</FormLabel>
+                        <FormLabel>Start Time <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_time')} /></FormLabel>
                         <FormDescription className="text-xs">
                           Ask: What time will the event start and end?
                         </FormDescription>
@@ -705,7 +791,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="eventEndTime"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>End Time</FormLabel>
+                        <FormLabel>End Time <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_time')} /></FormLabel>
                         <FormControl>
                           <Input placeholder="e.g. 2:00 PM" {...field} className="h-11" />
                         </FormControl>
@@ -717,7 +803,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     name="location"
                     render={({ field }) => (
                       <FormItem className="md:col-span-2">
-                        <FormLabel>Location / Address</FormLabel>
+                        <FormLabel>Location / Address <FieldCompletionCheck isComplete={isFieldComplete('event', 'event_address')} /></FormLabel>
                         <FormDescription className="text-xs">
                           Ask: Where will sandwiches be made? (Full address)
                         </FormDescription>
@@ -803,7 +889,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   </div>
 
                   <div>
-                    <label className="text-sm font-medium mb-2 block">Sandwiches Planned</label>
+                    <label className="text-sm font-medium mb-2 block">Sandwiches Planned <FieldCompletionCheck isComplete={isFieldComplete('event', 'sandwich_type') && isFieldComplete('event', 'sandwich_count')} /></label>
                     <p className="text-xs text-muted-foreground mb-2">
                       Ask: How many sandwiches do you need, and what types? (Turkey, ham, chicken, or PBJ)
                     </p>
