@@ -350,7 +350,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
   return (
     <div className="space-y-6 max-w-4xl mx-auto pb-20">
       {/* Header Actions */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4 bg-card p-4 rounded-lg border shadow-sm sticky top-0 z-10">
+      <div className="flex flex-col gap-3 bg-card p-4 rounded-lg border shadow-sm sticky top-0 z-10">
         <div className="flex items-center gap-4">
           <FormField
             control={form.control}
@@ -381,15 +381,14 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
             </span>
           )}
         </div>
-        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
-          <Button variant="outline" size="sm" onClick={copySummary} className="flex-1 sm:flex-none">
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" size="sm" onClick={copySummary}>
             <Copy className="h-4 w-4 mr-2" />
             Copy Summary
           </Button>
           <Button
             size="sm"
             variant="outline"
-            className="flex-1 sm:flex-none"
             onClick={() => setContactLogOpen(true)}
           >
             <MessageSquare className="h-4 w-4 mr-2" />
@@ -407,7 +406,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   size="sm"
                   onClick={handleMarkScheduled}
                   disabled={pushMutation.isPending || updateMutation.isPending}
-                  className="flex-1 sm:flex-none bg-teal-600 hover:bg-teal-700 text-white"
+                  className="bg-teal-600 hover:bg-teal-700 text-white"
                 >
                   {pushMutation.isPending ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
@@ -422,7 +421,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   size="sm"
                   onClick={handleMarkCompleted}
                   disabled={pushMutation.isPending || updateMutation.isPending}
-                  className="flex-1 sm:flex-none bg-green-600 hover:bg-green-700 text-white"
+                  className="bg-green-600 hover:bg-green-700 text-white"
                 >
                   {(pushMutation.isPending || updateMutation.isPending) ? (
                     <Loader2 className="h-4 w-4 mr-2 animate-spin" />
