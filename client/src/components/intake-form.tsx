@@ -381,7 +381,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
             </span>
           )}
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
+        <div className="flex flex-wrap gap-2 w-full sm:w-auto">
           <Button variant="outline" size="sm" onClick={copySummary} className="flex-1 sm:flex-none">
             <Copy className="h-4 w-4 mr-2" />
             Copy Summary
@@ -933,9 +933,9 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                     )}
                   />
                   <div>
-                    <label className="text-sm font-medium text-muted-foreground block mb-1">Indoor/outdoor notes</label>
+                    <label className="text-sm font-medium text-muted-foreground block mb-1">Indoor space notes</label>
                     <Textarea
-                      placeholder="e.g. They have a large conference room, pavilion with walls, confirmed AC..."
+                      placeholder="Details about the space: kitchen access, counter space, room size, anything relevant for the day of..."
                       value={(checklist as any).indoor_notes || ''}
                       onChange={(e) => updateChecklist({ indoor_notes: e.target.value })}
                       className="min-h-[60px] text-sm"
