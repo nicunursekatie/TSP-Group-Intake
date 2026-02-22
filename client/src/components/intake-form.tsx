@@ -31,7 +31,9 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera } from "lucide-react";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
+import { Label } from "@/components/ui/label";
+import { AlertTriangle, Copy, Save, Phone, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera, Truck, Users, Mic, ThermometerSnowflake } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
@@ -303,6 +305,31 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
     const hasSandwichType = !!v.sandwichType;
     return hasLocation && hasEventDate && hasSandwichCount && hasSandwichType;
   };
+
+  // --- Transport & Staffing: stored in intakeChecklist ---
+  const checklist = intake.intakeChecklist || {};
+  const transportMode = (checklist as any).transport_mode || '';
+  const needsSpeaker = (checklist as any).needs_speaker || false;
+  const speakerNotes = (checklist as any).speaker_notes || '';
+  const volunteerCountNeeded = (checklist as any).volunteer_count_needed || 0;
+  const needsVan = (checklist as any).needs_van || false;
+
+  const updateChecklist = (updates: Record<string, any>) => {
+    const updated = { ...intake.intakeChecklist, ...updates };
+    updateMutation.mutate(
+      { id: intake.id, data: { intakeChecklist: updated } },
+      {
+        onSuccess: () => {
+          setLastSaved(new Date());
+          queryClient.invalidateQueries({ queryKey: ["intake-records", intake.id] });
+        },
+      }
+    );
+  };
+
+  // Soft suggestions
+  const suggestSpeaker = sandwichCount >= 500;
+  const suggestVan = sandwichCount >= 1000 || nextDayPickup;
 
   const copySummary = () => {
     const v = form.getValues();
@@ -975,6 +1002,129 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                 </div>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-6 space-y-6">
+                {/* Transport & Staffing Needs Assessment */}
+                <div className="p-4 bg-muted/30 rounded-lg border border-border/50 space-y-5">
+                  <h4 className="font-medium text-sm text-muted-foreground uppercase tracking-wider">
+                    Transport & Staffing
+                  </h4>
+
+                  {/* 1. Transport Mode */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Truck className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">How are sandwiches getting to the delivery location?</Label>
+                    </div>
+                    <RadioGroup
+                      value={transportMode}
+                      onValueChange={(val) => updateChecklist({ transport_mode: val })}
+                      className="space-y-2 pl-6"
+                    >
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="tsp_driver" id="transport_tsp" />
+                        <Label htmlFor="transport_tsp" className="text-sm cursor-pointer">TSP will arrange a driver (standard)</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="self_transport" id="transport_self" />
+                        <Label htmlFor="transport_self" className="text-sm cursor-pointer">Group is self-transporting</Label>
+                      </div>
+                      <div className="flex items-center space-x-2">
+                        <RadioGroupItem value="org_pickup" id="transport_org" />
+                        <Label htmlFor="transport_org" className="text-sm cursor-pointer">Organization is sending their own driver to pick up</Label>
+                      </div>
+                    </RadioGroup>
+                    {transportMode === 'tsp_driver' && (
+                      <p className="text-xs text-muted-foreground pl-6 mt-1">
+                        Assign driver in the main platform once confirmed.
+                      </p>
+                    )}
+                    {(transportMode === 'self_transport' || transportMode === 'org_pickup') && (
+                      <p className="text-xs text-muted-foreground pl-6 mt-1">
+                        Transport checklist items (cooler with ice packs, etc.) apply to whoever is transporting.
+                      </p>
+                    )}
+                  </div>
+
+                  {/* 2. TSP Speaker/Rep */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Mic className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">Does this event need a TSP Speaker/Rep?</Label>
+                    </div>
+                    <div className="pl-6 space-y-2">
+                      <div className="flex items-start space-x-2 space-y-0">
+                        <Checkbox
+                          id="needs_speaker"
+                          checked={needsSpeaker}
+                          onCheckedChange={(val) => updateChecklist({ needs_speaker: val === true })}
+                          className="mt-0.5"
+                        />
+                        <Label htmlFor="needs_speaker" className="text-sm cursor-pointer">
+                          Yes, a TSP speaker/rep is needed
+                        </Label>
+                      </div>
+                      {suggestSpeaker && !needsSpeaker && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          500+ sandwiches — consider assigning a rep
+                        </p>
+                      )}
+                      {needsSpeaker && (
+                        <Input
+                          placeholder="Context: group requested one, large event, etc."
+                          value={speakerNotes}
+                          onChange={(e) => updateChecklist({ speaker_notes: e.target.value })}
+                          className="text-sm"
+                        />
+                      )}
+                    </div>
+                  </div>
+
+                  {/* 3. TSP Volunteers */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <Users className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">How many TSP volunteers needed?</Label>
+                    </div>
+                    <div className="pl-6">
+                      <Input
+                        type="number"
+                        min={0}
+                        value={volunteerCountNeeded}
+                        onChange={(e) => updateChecklist({ volunteer_count_needed: parseInt(e.target.value) || 0 })}
+                        placeholder="0 = none needed"
+                        className="w-[140px] font-mono"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 4. Refrigerated Van */}
+                  <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                      <ThermometerSnowflake className="h-4 w-4 text-muted-foreground" />
+                      <Label className="text-sm font-medium">Refrigerated van needed?</Label>
+                    </div>
+                    <div className="pl-6 space-y-2">
+                      <div className="flex items-start space-x-2 space-y-0">
+                        <Checkbox
+                          id="needs_van"
+                          checked={needsVan}
+                          onCheckedChange={(val) => updateChecklist({ needs_van: val === true })}
+                          className="mt-0.5"
+                        />
+                        <Label htmlFor="needs_van" className="text-sm cursor-pointer">
+                          Yes, a refrigerated van is needed
+                        </Label>
+                      </div>
+                      {suggestVan && !needsVan && (
+                        <p className="text-xs text-amber-600 flex items-center gap-1">
+                          <AlertTriangle className="h-3 w-3" />
+                          {sandwichCount >= 1000 ? '1000+ sandwiches' : 'Next-day pickup'} — consider a refrigerated van
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
                 <FormField
                   control={form.control}
                   name="deliveryInstructions"

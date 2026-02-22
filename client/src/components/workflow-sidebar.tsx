@@ -412,6 +412,9 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
                 Day-Of Operations ({dayOfCompleted}/{dayOfTotal})
               </h4>
+              <p className="text-xs text-muted-foreground bg-muted/30 rounded p-2">
+                Use this to confirm day-of requirements have been communicated to the right people (volunteer group, driver, etc.).
+              </p>
               {incompleteDayOfItems.length === 0 && (
                 <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 dark:bg-green-950/40 dark:text-green-200 border border-green-200 dark:border-green-800 rounded-lg p-3">
                   <CheckCircle2 className="h-4 w-4 shrink-0" />
