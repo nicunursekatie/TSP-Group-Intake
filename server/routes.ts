@@ -493,9 +493,9 @@ export async function registerRoutes(
     try {
       const userId = getUserId(req);
       const currentUser = await authStorage.getUser(userId!);
-      // Admins see all records; regular users see only their own
+      // Admins see all records; regular users see only events assigned to them on the platform
       const isAdminUser = currentUser?.role === 'admin' || currentUser?.role === 'admin_coordinator';
-      const records = await storage.listIntakeRecords(isAdminUser ? undefined : userId!);
+      const records = await storage.listIntakeRecords(isAdminUser ? undefined : currentUser?.platformUserId || undefined);
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch records" });

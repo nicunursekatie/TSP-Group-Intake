@@ -9,7 +9,7 @@ import type {
   InsertTask,
   PlatformSyncLog
 } from "@shared/schema";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, or } from "drizzle-orm";
 
 export interface UserSettings {
   phoneNumber?: string | null;
@@ -34,7 +34,7 @@ export interface IStorage {
   
   // Intake Records
   getIntakeRecord(id: string): Promise<IntakeRecord | undefined>;
-  listIntakeRecords(ownerId?: string): Promise<IntakeRecord[]>;
+  listIntakeRecords(platformUserId?: string): Promise<IntakeRecord[]>;
   createIntakeRecord(record: InsertIntakeRecord): Promise<IntakeRecord>;
   updateIntakeRecord(id: string, updates: UpdateIntakeRecord): Promise<IntakeRecord | undefined>;
   deleteIntakeRecord(id: string): Promise<void>;
@@ -133,10 +133,13 @@ export class DbStorage implements IStorage {
     return result[0];
   }
 
-  async listIntakeRecords(ownerId?: string): Promise<IntakeRecord[]> {
-    if (ownerId) {
+  async listIntakeRecords(platformUserId?: string): Promise<IntakeRecord[]> {
+    if (platformUserId) {
       return db.select().from(intakeRecords)
-        .where(eq(intakeRecords.ownerId, ownerId))
+        .where(or(
+          eq(intakeRecords.tspContactAssigned, platformUserId),
+          eq(intakeRecords.tspContact, platformUserId),
+        ))
         .orderBy(desc(intakeRecords.createdAt));
     }
     return db.select().from(intakeRecords).orderBy(desc(intakeRecords.createdAt));
