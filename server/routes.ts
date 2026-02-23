@@ -724,17 +724,22 @@ export async function registerRoutes(
         });
       }
 
-      console.log(`Sync pull (direct DB): User ${currentUser.email} platformUserId="${currentUser.platformUserId}"`);
+      const isAdminUser = currentUser.role === 'admin' || currentUser.role === 'admin_coordinator' || currentUser.role === 'super_admin';
+      console.log(`Sync pull (direct DB): User ${currentUser.email} platformUserId="${currentUser.platformUserId}" admin=${isAdminUser}`);
 
       // Query the main platform's event_requests table directly
-      const events = await db.select().from(eventRequests)
-        .where(and(
-          or(
-            eq(eventRequests.tspContactAssigned, currentUser.platformUserId),
-            eq(eventRequests.tspContact, currentUser.platformUserId)
-          ),
-          inArray(eventRequests.status, ['new', 'in_process', 'scheduled', 'completed'])
-        ));
+      // Admins pull ALL events; regular users only pull events assigned to them
+      const events = isAdminUser
+        ? await db.select().from(eventRequests)
+            .where(inArray(eventRequests.status, ['new', 'in_process', 'scheduled', 'completed']))
+        : await db.select().from(eventRequests)
+            .where(and(
+              or(
+                eq(eventRequests.tspContactAssigned, currentUser.platformUserId),
+                eq(eventRequests.tspContact, currentUser.platformUserId)
+              ),
+              inArray(eventRequests.status, ['new', 'in_process', 'scheduled', 'completed'])
+            ));
 
       console.log(`Sync pull: Found ${events.length} event requests in DB`);
 
