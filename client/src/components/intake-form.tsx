@@ -53,6 +53,15 @@ import { ContactLogDialog } from "./contact-log-dialog";
 
 type SandwichPlanEntry = { type: string; count: number };
 
+/** Parse a date string as local (not UTC) to avoid off-by-one day errors */
+function parseLocalDate(dateStr: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(dateStr);
+}
+
 function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCount: number): SandwichPlanEntry[] {
   if (sandwichType) {
     try {
@@ -214,7 +223,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
       backupContactPhone: intake.backupContactPhone || "",
       backupContactRole: intake.backupContactRole || "",
       eventDate: intake.eventDate
-        ? format(new Date(intake.eventDate), "yyyy-MM-dd")
+        ? format(parseLocalDate(intake.eventDate), "yyyy-MM-dd")
         : intake.scheduledEventDate
           ? format(new Date(intake.scheduledEventDate), "yyyy-MM-dd")
           : intake.desiredEventDate
@@ -265,7 +274,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
         backupContactPhone: intake.backupContactPhone || "",
         backupContactRole: intake.backupContactRole || "",
         eventDate: intake.eventDate
-          ? format(new Date(intake.eventDate), "yyyy-MM-dd")
+          ? format(parseLocalDate(intake.eventDate), "yyyy-MM-dd")
           : intake.scheduledEventDate
             ? format(new Date(intake.scheduledEventDate), "yyyy-MM-dd")
             : intake.desiredEventDate
@@ -413,7 +422,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
 
   // Event urgency
   const daysUntilEvent = intake.eventDate
-    ? differenceInDays(new Date(intake.eventDate), new Date())
+    ? differenceInDays(parseLocalDate(intake.eventDate), new Date())
     : null;
   const isUrgent = daysUntilEvent !== null && daysUntilEvent <= 7 && daysUntilEvent >= 0;
   const eventPassed = daysUntilEvent !== null && daysUntilEvent < 0;
@@ -643,7 +652,7 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
         <div className="bg-teal-50 border border-teal-200 rounded-lg p-3 flex items-center justify-center gap-3 text-center">
           <Calendar className="h-5 w-5 text-teal-600" />
           <div>
-            <span className="font-medium text-teal-900">{format(new Date(intake.eventDate), "MMMM d, yyyy")}</span>
+            <span className="font-medium text-teal-900">{format(parseLocalDate(intake.eventDate), "MMMM d, yyyy")}</span>
             {daysUntilEvent !== null && daysUntilEvent >= 0 && (
               <span className="text-sm text-teal-700 ml-2">
                 — {daysUntilEvent === 0 ? "Today!" : `${daysUntilEvent} day${daysUntilEvent !== 1 ? 's' : ''} away`}

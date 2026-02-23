@@ -31,6 +31,15 @@ import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+/** Parse a date string as local (not UTC) to avoid off-by-one day errors */
+function parseLocalDate(dateStr: string): Date {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  return new Date(dateStr);
+}
+
 interface WorkflowSidebarProps {
   intake: IntakeRecord;
   tasks: Task[];
@@ -74,7 +83,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
   };
 
   const daysUntilEvent = intake.eventDate
-    ? differenceInDays(new Date(intake.eventDate), new Date())
+    ? differenceInDays(parseLocalDate(intake.eventDate), new Date())
     : null;
 
   const isUrgent = daysUntilEvent !== null && daysUntilEvent <= 7 && daysUntilEvent >= 0;
@@ -263,7 +272,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               {intake.eventDate ? (
                 <>
                   <p className="font-medium text-teal-900">
-                    {format(new Date(intake.eventDate), "MMMM d, yyyy")}
+                    {format(parseLocalDate(intake.eventDate), "MMMM d, yyyy")}
                   </p>
                   {daysUntilEvent !== null && daysUntilEvent >= 0 && (
                     <p className="text-sm text-teal-700">
@@ -390,7 +399,7 @@ export function WorkflowSidebar({ intake, tasks, tasksLoading }: WorkflowSidebar
               <p className="font-medium text-green-900 dark:text-green-100">Event Complete</p>
               {intake.eventDate && (
                 <p className="text-sm text-green-700 dark:text-green-300">
-                  {format(new Date(intake.eventDate), "MMMM d, yyyy")}
+                  {format(parseLocalDate(intake.eventDate), "MMMM d, yyyy")}
                 </p>
               )}
             </div>

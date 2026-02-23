@@ -27,6 +27,17 @@ import type { IntakeRecord } from "@/lib/types";
 
 // --- Helpers ---
 
+/** Parse a date string as local (not UTC) to avoid off-by-one day errors */
+function parseLocalDate(dateStr: string): Date {
+  // "2026-03-15" → treat as local midnight, not UTC midnight
+  if (/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    return new Date(y, m - 1, d);
+  }
+  // ISO strings with time component are fine as-is
+  return new Date(dateStr);
+}
+
 type SandwichPlanEntry = { type: string; count: number };
 
 function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCount: number): SandwichPlanEntry[] {
@@ -52,7 +63,7 @@ function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructi
   if (record.status === 'Completed') return flags;
   // Computed flags
   if (record.eventDate) {
-    const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
+    const daysUntil = differenceInDays(parseLocalDate(record.eventDate), new Date());
     if (daysUntil < 0 && (record.status === 'In Process' || record.status === 'New')) {
       flags.push({ label: 'Awaiting response', variant: 'stale' });
     }
@@ -74,7 +85,7 @@ function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructi
 
 function daysFromToday(record: IntakeRecord): number | null {
   if (!record.eventDate) return null;
-  return differenceInDays(new Date(record.eventDate), new Date());
+  return differenceInDays(parseLocalDate(record.eventDate), new Date());
 }
 
 // --- Section Definitions ---
@@ -127,7 +138,7 @@ const SECTIONS: SectionDef[] = [
     defaultOpen: true,
     filter: (records) => records.filter(r =>
       r.eventDate &&
-      new Date(r.eventDate) < new Date() &&
+      parseLocalDate(r.eventDate) < new Date() &&
       (r.status === 'In Process' || r.status === 'New')
     ),
   },
@@ -143,7 +154,7 @@ const SECTIONS: SectionDef[] = [
       // In Process with future dates that aren't already in "needs type"
       return records.filter(r => {
         if (r.status !== 'In Process') return false;
-        if (!r.eventDate || new Date(r.eventDate) < new Date()) return false;
+        if (!r.eventDate || parseLocalDate(r.eventDate) < new Date()) return false;
         const flags = getAllFlags(r);
         const needsType = flags.some(f => f.label.includes('Needs:') && f.label.includes('type'));
         return !needsType;
@@ -162,7 +173,7 @@ const SECTIONS: SectionDef[] = [
       // Only Scheduled records with future dates
       return records.filter(r => {
         if (r.status !== 'Scheduled') return false;
-        if (!r.eventDate || new Date(r.eventDate) < new Date()) return false;
+        if (!r.eventDate || parseLocalDate(r.eventDate) < new Date()) return false;
         return true;
       });
     },
@@ -236,8 +247,8 @@ export default function Dashboard() {
   // Sort: soonest event date first within each section
   const sortedRecords = useMemo(() => {
     return [...filteredRecords].sort((a, b) => {
-      const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
-      const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
+      const dateA = a.eventDate ? parseLocalDate(a.eventDate).getTime() : Infinity;
+      const dateB = b.eventDate ? parseLocalDate(b.eventDate).getTime() : Infinity;
       return dateA - dateB;
     });
   }, [filteredRecords]);
@@ -254,7 +265,7 @@ export default function Dashboard() {
   const stats = useMemo(() => {
     const active = filteredRecords.filter(r => r.status !== 'Completed');
     const upcoming = filteredRecords.filter(r =>
-      r.eventDate && new Date(r.eventDate) >= new Date() &&
+      r.eventDate && parseLocalDate(r.eventDate) >= new Date() &&
       r.status === 'Scheduled'
     );
     const totalSandwichesUpcoming = upcoming.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
@@ -263,7 +274,7 @@ export default function Dashboard() {
       return flags.some(f => f.label.includes('Needs:') && f.label.includes('type'));
     }).length;
     const pastDue = active.filter(r =>
-      r.eventDate && new Date(r.eventDate) < new Date() &&
+      r.eventDate && parseLocalDate(r.eventDate) < new Date() &&
       (r.status === 'In Process' || r.status === 'New')
     ).length;
     const newRequests = filteredRecords.filter(r => r.status === 'New').length;
@@ -358,7 +369,7 @@ export default function Dashboard() {
     const flags = getAllFlags(record);
     const isPastDue = record.eventDate &&
       (record.status === 'In Process' || record.status === 'New') &&
-      new Date(record.eventDate) < new Date();
+      parseLocalDate(record.eventDate) < new Date();
 
     const sandCount = record.sandwichCount || 0;
     const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
@@ -401,7 +412,7 @@ export default function Dashboard() {
         </TableCell>
         <TableCell className="py-2.5 px-3.5 whitespace-nowrap align-top">
           <div className="text-[13px] text-slate-700 font-medium">
-            {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "—"}
+            {record.eventDate ? format(parseLocalDate(record.eventDate), "MMM d, yyyy") : "—"}
           </div>
           <div className="mt-0.5">
             <DaysLabel record={record} />
