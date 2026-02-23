@@ -20,7 +20,8 @@ import {
   ChevronRight,
   MapPin,
 } from "lucide-react";
-import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
+import { useIntakeRecords, useSyncFromPlatform, useTspContacts } from "@/lib/queries";
+import { useAuth } from "@/hooks/use-auth";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { IntakeRecord } from "@/lib/types";
@@ -202,7 +203,10 @@ const STATUS_PILL: Record<string, { fg: string; bg: string; border: string }> = 
 // --- Component ---
 
 export default function Dashboard() {
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin' || user?.role === 'admin_coordinator';
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
+  const { data: tspContacts = {} } = useTspContacts(isAdmin);
   const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
@@ -365,6 +369,13 @@ export default function Dashboard() {
     );
   };
 
+  const resolveTspContactName = (record: IntakeRecord): string | null => {
+    if (!isAdmin) return null;
+    const id = record.tspContactAssigned || record.tspContact;
+    if (!id) return record.customTspContact || null;
+    return tspContacts[id] || record.customTspContact || null;
+  };
+
   const renderRow = (record: IntakeRecord, accentBorder?: string, isStripe = false) => {
     const flags = getAllFlags(record);
     const isPastDue = record.eventDate &&
@@ -374,6 +385,7 @@ export default function Dashboard() {
     const sandCount = record.sandwichCount || 0;
     const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
     const typeStr = plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ');
+    const tspName = resolveTspContactName(record);
 
     return (
       <TableRow
@@ -410,6 +422,15 @@ export default function Dashboard() {
             </a>
           )}
         </TableCell>
+        {isAdmin && (
+          <TableCell className="py-2.5 px-3.5 align-top">
+            {tspName ? (
+              <span className="text-[13px] text-slate-700 font-medium">{tspName}</span>
+            ) : (
+              <span className="text-slate-300 text-[13px]">—</span>
+            )}
+          </TableCell>
+        )}
         <TableCell className="py-2.5 px-3.5 whitespace-nowrap align-top">
           <div className="text-[13px] text-slate-700 font-medium">
             {record.eventDate ? format(parseLocalDate(record.eventDate), "MMM d, yyyy") : "—"}
@@ -484,6 +505,9 @@ export default function Dashboard() {
                 <TableRow className="bg-slate-50 border-b-2 border-slate-200">
                   <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
                   <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Organization / Contact</TableHead>
+                  {isAdmin && (
+                    <TableHead className="py-2.5 px-3.5 w-[130px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">TSP Contact</TableHead>
+                  )}
                   <TableHead className="py-2.5 px-3.5 w-[140px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[90px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>

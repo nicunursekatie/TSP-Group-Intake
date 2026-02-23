@@ -488,6 +488,27 @@ export async function registerRoutes(
     }
   });
 
+  // TSP contact name lookup — returns a map of platform user IDs → display names
+  app.get("/api/tsp-contacts", isAuthenticated, isApproved, async (req, res) => {
+    try {
+      const allUsers = await db.select({
+        id: users.id,
+        firstName: users.firstName,
+        lastName: users.lastName,
+        displayName: users.displayName,
+      }).from(users);
+
+      const contactMap: Record<string, string> = {};
+      for (const u of allUsers) {
+        const name = u.displayName || [u.firstName, u.lastName].filter(Boolean).join(' ') || 'Unknown';
+        contactMap[u.id] = name;
+      }
+      res.json(contactMap);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch TSP contacts" });
+    }
+  });
+
   // Intake Records (protected - requires authenticated and approved users)
   app.get("/api/intake-records", isAuthenticated, isApproved, async (req, res) => {
     try {

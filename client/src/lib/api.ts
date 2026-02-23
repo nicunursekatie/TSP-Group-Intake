@@ -104,4 +104,10 @@ export const api = {
     if (!res.ok) throw new Error("Failed to fetch sync logs");
     return res.json();
   },
+
+  async getTspContacts(): Promise<Record<string, string>> {
+    const res = await apiFetch(`${API_BASE}/tsp-contacts`);
+    if (!res.ok) throw new Error("Failed to fetch TSP contacts");
+    return res.json();
+  },
 };

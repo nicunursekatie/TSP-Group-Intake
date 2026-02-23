@@ -79,6 +79,15 @@ export function useSyncFromPlatform() {
   });
 }
 
+export function useTspContacts(enabled: boolean) {
+  return useQuery({
+    queryKey: ["tsp-contacts"],
+    queryFn: api.getTspContacts,
+    enabled,
+    staleTime: 1000 * 60 * 10, // 10 minutes
+  });
+}
+
 export function usePushToPlatform() {
   const queryClient = useQueryClient();
   return useMutation({
