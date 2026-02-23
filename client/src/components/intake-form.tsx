@@ -464,6 +464,7 @@ export function IntakeForm({ intake }: { intake: IntakeRecord }) {
 
   // --- Transport & Staffing: stored in intakeChecklist ---
   const checklist = intake.intakeChecklist || {};
+  const addedToGoogleSheet = (checklist as any).added_to_google_sheet || false;
   const transportMode = (checklist as any).transport_mode || '';
   const needsSpeaker = (checklist as any).needs_speaker || false;
   const speakerNotes = (checklist as any).speaker_notes || '';
@@ -541,6 +542,21 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </Badge>
             )}
           </Button>
+
+          {/* Added to Google Sheet checkbox */}
+          <label className={cn(
+            "flex items-center gap-1.5 h-9 px-2.5 rounded-md border text-sm cursor-pointer transition-colors",
+            addedToGoogleSheet
+              ? "bg-green-50 border-green-200 text-green-700"
+              : "bg-background border-input text-muted-foreground hover:bg-accent"
+          )}>
+            <Checkbox
+              checked={addedToGoogleSheet}
+              onCheckedChange={(val) => updateChecklist({ added_to_google_sheet: val === true })}
+              className="h-3.5 w-3.5"
+            />
+            <span className="text-xs font-medium whitespace-nowrap">Added to Sheet</span>
+          </label>
 
           {/* Right: primary action + progress pill */}
           <div className="flex items-center gap-2 ml-auto">

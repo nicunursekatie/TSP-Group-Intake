@@ -131,23 +131,38 @@ const SECTIONS: SectionDef[] = [
     ),
   },
   {
+    id: 'inprocess',
+    icon: '🔄',
+    title: 'In Process — Scheduling',
+    badgeColor: 'bg-amber-500',
+    headerTint: 'bg-amber-50/50',
+    accentBorder: 'border-l-amber-300',
+    defaultOpen: true,
+    filter: (records) => {
+      // In Process with future dates that aren't already in "needs type"
+      return records.filter(r => {
+        if (r.status !== 'In Process') return false;
+        if (!r.eventDate || new Date(r.eventDate) < new Date()) return false;
+        const flags = getAllFlags(r);
+        const needsType = flags.some(f => f.label.includes('Needs:') && f.label.includes('type'));
+        return !needsType;
+      });
+    },
+  },
+  {
     id: 'upcoming',
     icon: '📅',
-    title: 'Upcoming Events',
+    title: 'Upcoming Events — Scheduled',
     badgeColor: 'bg-teal-600',
     headerTint: 'bg-teal-50',
     accentBorder: 'border-l-teal-400',
     defaultOpen: true,
     filter: (records) => {
-      // Upcoming = future date, scheduled or in process, and no action-level flags, and not New
+      // Only Scheduled records with future dates
       return records.filter(r => {
-        if (!r.eventDate || r.status === 'New' || r.status === 'Completed') return false;
-        if (new Date(r.eventDate) < new Date()) return false;
-        const flags = getAllFlags(r);
-        const hasActionFlag = flags.some(f =>
-          f.label.includes('Needs: type') || f.label.includes('Needs:') && f.label.includes('type')
-        );
-        return !hasActionFlag;
+        if (r.status !== 'Scheduled') return false;
+        if (!r.eventDate || new Date(r.eventDate) < new Date()) return false;
+        return true;
       });
     },
   },
@@ -239,7 +254,7 @@ export default function Dashboard() {
     const active = filteredRecords.filter(r => r.status !== 'Completed');
     const upcoming = filteredRecords.filter(r =>
       r.eventDate && new Date(r.eventDate) >= new Date() &&
-      (r.status === 'Scheduled' || r.status === 'In Process' || r.status === 'New')
+      r.status === 'Scheduled'
     );
     const totalSandwichesUpcoming = upcoming.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
     const needsType = active.filter(r => {
