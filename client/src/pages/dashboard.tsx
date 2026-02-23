@@ -376,13 +376,15 @@ export default function Dashboard() {
           <StatusPill status={record.status} />
         </TableCell>
         <TableCell className="py-2.5 px-3.5 max-w-[240px] align-top">
-          <div className="font-semibold text-slate-900 text-[13px] leading-tight">
-            {record.organizationName}
-            {record.department && (
-              <span className="font-normal text-slate-400"> — {record.department}</span>
-            )}
-          </div>
-          <div className="text-slate-500 text-[11px] mt-0.5">{record.contactName}</div>
+          <Link href={`/intake/${record.id}`} className="block group">
+            <div className="font-semibold text-slate-900 text-[13px] leading-tight group-hover:text-teal-700 transition-colors">
+              {record.organizationName}
+              {record.department && (
+                <span className="font-normal text-slate-400 group-hover:text-teal-500"> — {record.department}</span>
+              )}
+            </div>
+            <div className="text-slate-500 text-[11px] mt-0.5">{record.contactName}</div>
+          </Link>
         </TableCell>
         <TableCell className="py-2.5 px-3.5 whitespace-nowrap align-top">
           <div className="text-[13px] text-slate-700 font-medium">
@@ -417,13 +419,6 @@ export default function Dashboard() {
               {flags.map((flag, i) => <FlagPill key={i} flag={flag} />)}
             </div>
           ) : null}
-        </TableCell>
-        <TableCell className="py-2.5 px-3.5 text-right align-top">
-          <Link href={`/intake/${record.id}`}>
-            <button className="text-teal-600 text-xs font-medium px-3 py-1 border border-teal-600/25 rounded-md bg-white hover:bg-teal-50 transition-colors">
-              Edit
-            </button>
-          </Link>
         </TableCell>
       </TableRow>
     );
@@ -469,7 +464,6 @@ export default function Dashboard() {
                   <TableHead className="py-2.5 px-3.5 w-[90px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[180px] text-[11px] font-bold text-slate-500 uppercase tracking-wider">Flags</TableHead>
-                  <TableHead className="py-2.5 px-3.5 w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
