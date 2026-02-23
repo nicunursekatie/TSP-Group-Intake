@@ -44,7 +44,7 @@ import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Label } from "@/components/ui/label";
-import { AlertTriangle, Copy, Save, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera, Truck, Users, Mic, ThermometerSnowflake, Calendar, Clock } from "lucide-react";
+import { AlertTriangle, Copy, Save, Send, Loader2, MessageSquare, Plus, X, CheckCircle2, Camera, Truck, Users, Mic, ThermometerSnowflake, Calendar, Clock, MapPin } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useUpdateIntakeRecord, usePushToPlatform } from "@/lib/queries";
@@ -945,6 +945,17 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                         <FormControl>
                           <Input placeholder="123 Main St, City, State" {...field} />
                         </FormControl>
+                        {field.value && (
+                          <a
+                            href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(field.value)}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center gap-1 text-xs text-teal-600 hover:text-teal-800 transition-colors mt-1"
+                          >
+                            <MapPin className="h-3 w-3" />
+                            Open in Google Maps
+                          </a>
+                        )}
                         <FormMessage />
                       </FormItem>
                     )}

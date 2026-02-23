@@ -18,6 +18,7 @@ import {
   Loader2,
   ChevronDown,
   ChevronRight,
+  MapPin,
 } from "lucide-react";
 import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
@@ -385,6 +386,18 @@ export default function Dashboard() {
             </div>
             <div className="text-slate-500 text-[11px] mt-0.5">{record.contactName}</div>
           </Link>
+          {(record.eventAddress || record.location) && (
+            <a
+              href={`https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(record.eventAddress || record.location || '')}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="inline-flex items-center gap-0.5 text-[11px] text-teal-600 hover:text-teal-800 transition-colors mt-0.5"
+            >
+              <MapPin className="h-2.5 w-2.5" />
+              {record.eventAddress || record.location}
+            </a>
+          )}
         </TableCell>
         <TableCell className="py-2.5 px-3.5 whitespace-nowrap align-top">
           <div className="text-[13px] text-slate-700 font-medium">
@@ -505,10 +518,9 @@ export default function Dashboard() {
       </div>
 
       {/* Stat cards */}
-      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+      <div className="grid grid-cols-3 sm:grid-cols-5 gap-2.5">
         <StatCard icon="🆕" value={stats.newRequests}                        label="New Requests"      color="text-indigo-600" bg="bg-indigo-50" borderColor="border-indigo-600/10" />
         <StatCard icon="📅" value={stats.upcoming}                           label="Upcoming"          color="text-teal-600"   bg="bg-teal-50"   borderColor="border-teal-600/10" />
-        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()}  label="Sandwiches Planned" color="text-sky-600"    bg="bg-sky-50"    borderColor="border-sky-600/10" />
         <StatCard icon="⚠️" value={stats.needsType}                          label="Need Type"         color="text-amber-600"  bg="bg-amber-50"  borderColor="border-amber-600/10" />
         <StatCard icon="📭" value={stats.pastDue}                            label="Awaiting Response"  color="text-slate-600" bg="bg-slate-50"  borderColor="border-slate-300/30" />
         <StatCard icon="✅" value={stats.scheduled}                          label="Scheduled"         color="text-green-600"  bg="bg-green-50"  borderColor="border-green-600/10" />
