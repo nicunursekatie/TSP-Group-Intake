@@ -83,6 +83,8 @@ interface SectionDef {
   icon: string;
   title: string;
   badgeColor: string;
+  headerTint: string;  // bg color for section header
+  accentBorder: string; // left border color for rows
   defaultOpen: boolean;
   filter: (records: IntakeRecord[]) => IntakeRecord[];
 }
@@ -93,6 +95,8 @@ const SECTIONS: SectionDef[] = [
     icon: '🆕',
     title: 'New Requests — Reach Out ASAP',
     badgeColor: 'bg-indigo-600',
+    headerTint: 'bg-indigo-50',
+    accentBorder: 'border-l-indigo-400',
     defaultOpen: true,
     filter: (records) => records.filter(r => r.status === 'New'),
   },
@@ -101,6 +105,8 @@ const SECTIONS: SectionDef[] = [
     icon: '⚠️',
     title: 'Action Needed: Assign Sandwich Type',
     badgeColor: 'bg-amber-600',
+    headerTint: 'bg-amber-50',
+    accentBorder: 'border-l-amber-400',
     defaultOpen: true,
     filter: (records) => {
       return records.filter(r => {
@@ -115,6 +121,8 @@ const SECTIONS: SectionDef[] = [
     icon: '📭',
     title: 'Awaiting Response — Event Date Passed',
     badgeColor: 'bg-slate-500',
+    headerTint: 'bg-slate-50',
+    accentBorder: 'border-l-slate-300',
     defaultOpen: true,
     filter: (records) => records.filter(r =>
       r.eventDate &&
@@ -127,6 +135,8 @@ const SECTIONS: SectionDef[] = [
     icon: '📅',
     title: 'Upcoming Events',
     badgeColor: 'bg-teal-600',
+    headerTint: 'bg-teal-50',
+    accentBorder: 'border-l-teal-400',
     defaultOpen: true,
     filter: (records) => {
       // Upcoming = future date, scheduled or in process, and no action-level flags, and not New
@@ -145,7 +155,9 @@ const SECTIONS: SectionDef[] = [
     id: 'completed',
     icon: '✅',
     title: 'Completed',
-    badgeColor: 'bg-slate-500',
+    badgeColor: 'bg-green-600',
+    headerTint: 'bg-green-50',
+    accentBorder: 'border-l-green-300',
     defaultOpen: false,
     filter: (records) => records.filter(r => r.status === 'Completed'),
   },
@@ -326,7 +338,7 @@ export default function Dashboard() {
     );
   };
 
-  const renderRow = (record: IntakeRecord) => {
+  const renderRow = (record: IntakeRecord, accentBorder?: string, isStripe = false) => {
     const flags = getAllFlags(record);
     const isPastDue = record.eventDate &&
       (record.status === 'In Process' || record.status === 'New') &&
@@ -340,8 +352,9 @@ export default function Dashboard() {
       <TableRow
         key={record.id}
         className={cn(
-          "hover:brightness-[0.97]",
-          isPastDue && "bg-slate-50/50 border-l-[3px] border-l-slate-300",
+          "hover:brightness-[0.97] border-l-[3px]",
+          isPastDue ? "bg-slate-50/50 border-l-slate-300" : accentBorder || "border-l-transparent",
+          !isPastDue && isStripe && "bg-slate-50/40",
         )}
       >
         <TableCell className="py-2.5 px-3.5 align-top">
@@ -411,7 +424,8 @@ export default function Dashboard() {
         <div
           onClick={() => toggleSection(section.id)}
           className={cn(
-            "bg-white px-4 py-3 flex items-center gap-2.5 cursor-pointer select-none",
+            "px-4 py-3 flex items-center gap-2.5 cursor-pointer select-none",
+            section.headerTint,
             !isCollapsed && "border-b border-slate-200",
           )}
         >
@@ -444,7 +458,7 @@ export default function Dashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {section.records.map(record => renderRow(record))}
+                {section.records.map((record, i) => renderRow(record, section.accentBorder, i % 2 === 1))}
               </TableBody>
             </Table>
           </div>
