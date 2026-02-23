@@ -212,7 +212,9 @@ export default function Dashboard() {
   const { data: tspContacts = {} } = useTspContacts(isAdmin);
   const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
-  const [tspSort, setTspSort] = useState<'none' | 'asc' | 'desc'>('none');
+  type SortCol = 'status' | 'org' | 'tsp' | 'date' | 'attendees' | 'sandwiches';
+  const [sortCol, setSortCol] = useState<SortCol | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     for (const s of SECTIONS) {
@@ -473,24 +475,62 @@ export default function Dashboard() {
     );
   };
 
-  const toggleTspSort = () => {
-    setTspSort(prev => prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none');
+  const toggleSort = (col: SortCol) => {
+    if (sortCol === col) {
+      if (sortDir === 'asc') setSortDir('desc');
+      else { setSortCol(null); setSortDir('asc'); }
+    } else {
+      setSortCol(col);
+      setSortDir('asc');
+    }
   };
 
-  const sortByTspContact = (records: IntakeRecord[]): IntakeRecord[] => {
-    if (tspSort === 'none' || !isAdmin) return records;
+  const SortIcon = ({ col }: { col: SortCol }) => {
+    if (sortCol !== col) return <ArrowUpDown className="h-3 w-3 opacity-40" />;
+    return sortDir === 'asc' ? <ArrowUp className="h-3 w-3" /> : <ArrowDown className="h-3 w-3" />;
+  };
+
+  const STATUS_RANK: Record<string, number> = { 'New': 0, 'In Process': 1, 'Scheduled': 2, 'Completed': 3 };
+
+  const sortRecords = (records: IntakeRecord[]): IntakeRecord[] => {
+    if (!sortCol) return records;
     return [...records].sort((a, b) => {
-      const nameA = resolveTspContactName(a) || '';
-      const nameB = resolveTspContactName(b) || '';
-      const cmp = nameA.localeCompare(nameB);
-      return tspSort === 'asc' ? cmp : -cmp;
+      let cmp = 0;
+      switch (sortCol) {
+        case 'status':
+          cmp = (STATUS_RANK[a.status] ?? 99) - (STATUS_RANK[b.status] ?? 99);
+          break;
+        case 'org':
+          cmp = a.organizationName.localeCompare(b.organizationName);
+          break;
+        case 'tsp': {
+          const nameA = resolveTspContactName(a) || '';
+          const nameB = resolveTspContactName(b) || '';
+          cmp = nameA.localeCompare(nameB);
+          break;
+        }
+        case 'date': {
+          const dA = a.eventDate ? parseLocalDate(a.eventDate).getTime() : Infinity;
+          const dB = b.eventDate ? parseLocalDate(b.eventDate).getTime() : Infinity;
+          cmp = dA - dB;
+          break;
+        }
+        case 'attendees':
+          cmp = (a.attendeeCount || 0) - (b.attendeeCount || 0);
+          break;
+        case 'sandwiches':
+          cmp = (a.sandwichCount || 0) - (b.sandwichCount || 0);
+          break;
+      }
+      return sortDir === 'asc' ? cmp : -cmp;
     });
   };
 
   const renderSection = (section: SectionDef & { records: IntakeRecord[] }) => {
     if (section.records.length === 0) return null;
     const isCollapsed = collapsedSections.has(section.id);
-    const displayRecords = sortByTspContact(section.records);
+    const displayRecords = sortRecords(section.records);
+    const thClass = "py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-slate-700 select-none";
 
     return (
       <div key={section.id} className="rounded-[10px] border border-slate-200 overflow-hidden shadow-sm mb-3.5">
@@ -522,29 +562,31 @@ export default function Dashboard() {
             <Table className="table-fixed w-full">
               <TableHeader>
                 <TableRow className="bg-slate-50 border-b-2 border-slate-200">
-                  <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Organization / Contact</TableHead>
+                  <TableHead className={cn(thClass, "w-[100px]")} onClick={() => toggleSort('status')}>
+                    <span className="inline-flex items-center gap-1">Status <SortIcon col="status" /></span>
+                  </TableHead>
+                  <TableHead className={thClass} onClick={() => toggleSort('org')}>
+                    <span className="inline-flex items-center gap-1">Organization / Contact <SortIcon col="org" /></span>
+                  </TableHead>
                   {isAdmin && (
-                    <TableHead
-                      className="py-2.5 px-3.5 w-[130px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-slate-700 select-none"
-                      onClick={toggleTspSort}
-                    >
-                      <span className="inline-flex items-center gap-1">
-                        TSP Contact
-                        {tspSort === 'none' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
-                        {tspSort === 'asc' && <ArrowUp className="h-3 w-3" />}
-                        {tspSort === 'desc' && <ArrowDown className="h-3 w-3" />}
-                      </span>
+                    <TableHead className={cn(thClass, "w-[130px]")} onClick={() => toggleSort('tsp')}>
+                      <span className="inline-flex items-center gap-1">TSP Contact <SortIcon col="tsp" /></span>
                     </TableHead>
                   )}
-                  <TableHead className="py-2.5 px-3.5 w-[140px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
-                  <TableHead className="py-2.5 px-3.5 w-[90px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
-                  <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>
+                  <TableHead className={cn(thClass, "w-[140px]")} onClick={() => toggleSort('date')}>
+                    <span className="inline-flex items-center gap-1">Event Date <SortIcon col="date" /></span>
+                  </TableHead>
+                  <TableHead className={cn(thClass, "w-[90px] text-right")} onClick={() => toggleSort('attendees')}>
+                    <span className="inline-flex items-center gap-1 justify-end">Attendees <SortIcon col="attendees" /></span>
+                  </TableHead>
+                  <TableHead className={cn(thClass, "w-[100px] text-right")} onClick={() => toggleSort('sandwiches')}>
+                    <span className="inline-flex items-center gap-1 justify-end">Sandwiches <SortIcon col="sandwiches" /></span>
+                  </TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[180px] text-[11px] font-bold text-slate-500 uppercase tracking-wider">Flags</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {displayRecords.map((record, i) => renderRow(record, section.accentBorder, i % 2 === 1))}
+                {displayRecords.map((record: IntakeRecord, i: number) => renderRow(record, section.accentBorder, i % 2 === 1))}
               </TableBody>
             </Table>
           </div>
