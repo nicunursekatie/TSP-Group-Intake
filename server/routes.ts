@@ -27,7 +27,7 @@ const isApproved = async (req: Request, res: Response, next: NextFunction) => {
   }
 
   // Platform admins/coordinators are auto-approved on the intake app
-  if (user.approvalStatus !== 'approved' && (user.role === 'admin' || user.role === 'admin_coordinator')) {
+  if (user.approvalStatus !== 'approved' && (user.role === 'admin' || user.role === 'admin_coordinator' || user.role === 'super_admin')) {
     await storage.approveUser(user.id, 'system', user.role);
     return next();
   }
@@ -47,7 +47,7 @@ const isAdmin = async (req: Request, res: Response, next: NextFunction) => {
   }
   
   const user = await authStorage.getUser(userId);
-  if (!user || (user.role !== 'admin' && user.role !== 'admin_coordinator')) {
+  if (!user || (user.role !== 'admin' && user.role !== 'admin_coordinator' && user.role !== 'super_admin')) {
     return res.status(403).json({ error: "Admin access required" });
   }
 
@@ -515,7 +515,7 @@ export async function registerRoutes(
       const userId = getUserId(req);
       const currentUser = await authStorage.getUser(userId!);
       // Admins see all records; regular users see only events assigned to them on the platform
-      const isAdminUser = currentUser?.role === 'admin' || currentUser?.role === 'admin_coordinator';
+      const isAdminUser = currentUser?.role === 'admin' || currentUser?.role === 'admin_coordinator' || currentUser?.role === 'super_admin';
       const records = await storage.listIntakeRecords(isAdminUser ? undefined : currentUser?.platformUserId || undefined);
       res.json(records);
     } catch (error) {
@@ -916,7 +916,7 @@ export async function registerRoutes(
       // Verify the caller owns this record or is an admin
       const userId = getUserId(req);
       const currentUser = await authStorage.getUser(userId!);
-      if (record.ownerId !== userId && currentUser?.role !== 'admin' && currentUser?.role !== 'admin_coordinator') {
+      if (record.ownerId !== userId && currentUser?.role !== 'admin' && currentUser?.role !== 'admin_coordinator' && currentUser?.role !== 'super_admin') {
         return res.status(403).json({ error: "You can only sync records assigned to you" });
       }
 

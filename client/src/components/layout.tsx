@@ -44,7 +44,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
             Dashboard
           </Button>
         </Link>
-        {(user?.role === 'admin' || user?.role === 'admin_coordinator') && (
+        {(user?.role === 'admin' || user?.role === 'admin_coordinator' || user?.role === 'super_admin') && (
           <Link href="/admin">
             <Button 
               variant="ghost" 
@@ -89,7 +89,7 @@ export default function Layout({ children }: { children: React.ReactNode }) {
           )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate">{user?.firstName} {user?.lastName}</p>
-            <p className="text-xs text-muted-foreground truncate">{user?.role === 'intake_team' ? 'Intake Team' : user?.role === 'admin' || user?.role === 'admin_coordinator' ? 'Admin' : user?.role === 'volunteer' ? 'Volunteer' : user?.role}</p>
+            <p className="text-xs text-muted-foreground truncate">{user?.role === 'intake_team' ? 'Intake Team' : user?.role === 'admin' || user?.role === 'admin_coordinator' || user?.role === 'super_admin' ? 'Admin' : user?.role === 'volunteer' ? 'Volunteer' : user?.role}</p>
           </div>
         </div>
         <Button

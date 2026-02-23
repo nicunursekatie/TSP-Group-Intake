@@ -204,7 +204,7 @@ const STATUS_PILL: Record<string, { fg: string; bg: string; border: string }> = 
 
 export default function Dashboard() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'admin' || user?.role === 'admin_coordinator';
+  const isAdmin = user?.role === 'admin' || user?.role === 'admin_coordinator' || user?.role === 'super_admin';
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
   const { data: tspContacts = {} } = useTspContacts(isAdmin);
   const syncMutation = useSyncFromPlatform();

@@ -44,7 +44,7 @@ class AuthStorage implements IAuthStorage {
       // If user exists on platform but has no approval status yet, set intake defaults
       if (!existing.approvalStatus || existing.approvalStatus === 'pending') {
         // Platform admins get auto-approved on the intake app
-        if (existing.role === 'admin' || existing.role === 'admin_coordinator') {
+        if (existing.role === 'admin' || existing.role === 'admin_coordinator' || existing.role === 'super_admin') {
           updates.approvalStatus = 'approved';
         }
       }
