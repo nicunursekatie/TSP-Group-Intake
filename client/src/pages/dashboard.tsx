@@ -27,12 +27,15 @@ import {
   Loader2,
   ArrowUp,
   ArrowDown,
-  ArrowUpDown
+  ArrowUpDown,
+  AlertTriangle,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
+import { cn } from "@/lib/utils";
 
-type IntakeStatus = 'New' | 'In Process' | 'Scheduled' | 'Completed';
 type SortDirection = 'asc' | 'desc' | null;
 type SortColumn = 'status' | 'organizationName' | 'eventDate' | 'attendeeCount' | 'sandwichCount' | null;
 
@@ -63,6 +66,55 @@ const STATUS_ORDER: Record<string, number> = {
   'Completed': 3,
 };
 
+// Auto-computed flags for a record
+function computeFlags(record: any): { label: string; variant: 'destructive' | 'warning' }[] {
+  const flags: { label: string; variant: 'destructive' | 'warning' }[] = [];
+  if (record.status === 'Completed') return flags;
+
+  if (record.eventDate) {
+    const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
+
+    // Past-due: event date passed but still In Process
+    if (daysUntil < 0 && record.status === 'In Process') {
+      flags.push({ label: 'Past due', variant: 'destructive' });
+    }
+
+    // Upcoming events with missing fields
+    if (daysUntil >= 0 && daysUntil <= 14) {
+      const missingFields: string[] = [];
+      if (!record.sandwichType) missingFields.push('type');
+      if (record.sandwichCount <= 0) missingFields.push('count');
+      if (!record.eventAddress && !record.location) missingFields.push('location');
+      if (missingFields.length > 0) {
+        flags.push({ label: `Needs: ${missingFields.join(', ')}`, variant: 'warning' });
+      }
+      if (daysUntil <= 3 && record.status === 'In Process') {
+        flags.push({ label: 'Not yet scheduled', variant: 'destructive' });
+      }
+    }
+  }
+
+  return flags;
+}
+
+// Group key ordering
+type GroupKey = 'New' | 'In Process' | 'Scheduled' | 'Completed';
+const GROUP_ORDER: GroupKey[] = ['New', 'In Process', 'Scheduled', 'Completed'];
+
+const GROUP_LABELS: Record<GroupKey, string> = {
+  'New': 'New',
+  'In Process': 'In Process',
+  'Scheduled': 'Upcoming (Scheduled)',
+  'Completed': 'Completed',
+};
+
+const GROUP_COLORS: Record<GroupKey, string> = {
+  'New': 'text-blue-800 bg-blue-50 border-blue-200',
+  'In Process': 'text-yellow-800 bg-yellow-50 border-yellow-200',
+  'Scheduled': 'text-teal-800 bg-teal-50 border-teal-200',
+  'Completed': 'text-green-800 bg-green-50 border-green-200',
+};
+
 export default function Dashboard() {
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
   const syncMutation = useSyncFromPlatform();
@@ -70,6 +122,16 @@ export default function Dashboard() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [sortColumn, setSortColumn] = useState<SortColumn>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>(null);
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']));
+
+  const toggleGroup = (group: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev);
+      if (next.has(group)) next.delete(group);
+      else next.add(group);
+      return next;
+    });
+  };
 
   const handleSort = (column: SortColumn) => {
     if (sortColumn !== column) {
@@ -100,6 +162,7 @@ export default function Dashboard() {
     });
   };
 
+  // Filter records
   const filteredRecords = useMemo(() => {
     let records = intakeRecords.filter(record => {
       const matchesSearch =
@@ -112,18 +175,9 @@ export default function Dashboard() {
       return matchesSearch && matchesStatus;
     });
 
-    // Default sort: Completed at the bottom, then soonest event date first
-    records = [...records].sort((a, b) => {
-      const aCompleted = a.status === 'Completed' ? 1 : 0;
-      const bCompleted = b.status === 'Completed' ? 1 : 0;
-      if (aCompleted !== bCompleted) return aCompleted - bCompleted;
-      const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
-      const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
-      return dateA - dateB;
-    });
-
-    if (sortColumn && sortDirection) {
-      records = [...records].sort((a, b) => {
+    // Sort within groups: soonest event date first
+    const sortFn = (a: any, b: any) => {
+      if (sortColumn && sortDirection) {
         let cmp = 0;
         switch (sortColumn) {
           case 'status':
@@ -133,8 +187,8 @@ export default function Dashboard() {
             cmp = (a.organizationName || '').localeCompare(b.organizationName || '');
             break;
           case 'eventDate': {
-            const dateA = a.eventDate ? new Date(a.eventDate).getTime() : 0;
-            const dateB = b.eventDate ? new Date(b.eventDate).getTime() : 0;
+            const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
+            const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
             cmp = dateA - dateB;
             break;
           }
@@ -146,11 +200,59 @@ export default function Dashboard() {
             break;
         }
         return sortDirection === 'desc' ? -cmp : cmp;
-      });
+      }
+      // Default: soonest date first
+      const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
+      const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
+      return dateA - dateB;
+    };
+
+    return [...records].sort(sortFn);
+  }, [intakeRecords, search, statusFilter, sortColumn, sortDirection]);
+
+  // Group records by status
+  const groupedRecords = useMemo(() => {
+    const groups: Record<GroupKey, typeof filteredRecords> = {
+      'New': [],
+      'In Process': [],
+      'Scheduled': [],
+      'Completed': [],
+    };
+
+    for (const record of filteredRecords) {
+      const status = record.status as GroupKey;
+      if (groups[status]) {
+        groups[status].push(record);
+      }
     }
 
-    return records;
-  }, [intakeRecords, search, statusFilter, sortColumn, sortDirection]);
+    return groups;
+  }, [filteredRecords]);
+
+  // Summary stats — all derived from filteredRecords so they respect search/status filters
+  const stats = useMemo(() => {
+    const activeRecords = filteredRecords.filter(r => r.status !== 'Completed');
+    const scheduledRecords = filteredRecords.filter(r => r.status === 'Scheduled');
+
+    // Sandwiches scheduled (upcoming only)
+    const scheduledSandwiches = scheduledRecords.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
+
+    // Records needing action: non-completed records with destructive flags
+    const actionCount = activeRecords.filter(r => {
+      const hasStoredFlags = Array.isArray(r.flags) && r.flags.length > 0;
+      const hasComputedDestructive = computeFlags(r).some(f => f.variant === 'destructive');
+      return hasStoredFlags || hasComputedDestructive;
+    }).length;
+
+    // This week: events in next 7 days
+    const thisWeekCount = activeRecords.filter(r => {
+      if (!r.eventDate) return false;
+      const days = differenceInDays(new Date(r.eventDate), new Date());
+      return days >= 0 && days <= 7;
+    }).length;
+
+    return { scheduledSandwiches, actionCount, thisWeekCount };
+  }, [filteredRecords]);
 
   const getStatusColor = (status: string) => {
     switch (status) {
@@ -162,6 +264,144 @@ export default function Dashboard() {
     }
   };
 
+  // Render a single table row
+  const renderRow = (record: any) => {
+    const storedFlags = Array.isArray(record.flags) ? record.flags : [];
+    const autoFlags = computeFlags(record);
+    const allFlags = [
+      ...storedFlags.map((f: string) => ({ label: f, variant: 'destructive' as const })),
+      ...autoFlags,
+    ];
+
+    const isPastDue = record.eventDate &&
+      record.status === 'In Process' &&
+      differenceInDays(new Date(record.eventDate), new Date()) < 0;
+
+    const isZeroAttendees = record.attendeeCount === 0 && record.status !== 'Completed';
+
+    return (
+      <TableRow
+        key={record.id}
+        className={cn(
+          "hover:bg-muted/5",
+          isPastDue && "bg-red-50/50",
+          isZeroAttendees && !isPastDue && "opacity-60",
+        )}
+      >
+        <TableCell>
+          <Badge variant="outline" className={getStatusColor(record.status)}>
+            {record.status}
+          </Badge>
+        </TableCell>
+        <TableCell>
+          <div className="font-medium">
+            {record.organizationName}
+            {record.department && (
+              <span className="font-normal text-muted-foreground"> — {record.department}</span>
+            )}
+          </div>
+          <div className="text-sm text-muted-foreground">{record.contactName}</div>
+        </TableCell>
+        <TableCell>
+          <div className={cn(
+            "flex items-center gap-2 text-sm",
+            isPastDue && "text-red-700 font-medium",
+          )}>
+            <Calendar className={cn("h-3 w-3", isPastDue ? "text-red-500" : "text-muted-foreground")} />
+            {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "-"}
+            {isPastDue && (
+              <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 ml-1">
+                Past due
+              </Badge>
+            )}
+          </div>
+        </TableCell>
+        <TableCell className={cn("text-right font-mono", isZeroAttendees && "text-muted-foreground")}>
+          {record.attendeeCount != null ? record.attendeeCount : <span className="text-muted-foreground/50">-</span>}
+        </TableCell>
+        <TableCell>
+          {(() => {
+            const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
+            const summary = formatSandwichSummary(plan);
+            if (summary === '-') return <span className="text-muted-foreground text-xs">-</span>;
+            return (
+              <div className="text-sm">
+                <span className="font-mono font-bold text-primary">{record.sandwichCount}</span>
+                <span className="text-muted-foreground ml-1.5">
+                  {plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ') || ''}
+                </span>
+              </div>
+            );
+          })()}
+        </TableCell>
+        <TableCell>
+          {allFlags.length > 0 ? (
+            <div className="flex flex-wrap gap-1">
+              {allFlags.map((flag, i) => (
+                <Badge
+                  key={i}
+                  variant={flag.variant === 'warning' ? 'outline' : 'destructive'}
+                  className={cn(
+                    "text-[10px] px-1.5 py-0 h-5",
+                    flag.variant === 'warning' && 'border-amber-300 bg-amber-50 text-amber-800'
+                  )}
+                >
+                  {flag.label}
+                </Badge>
+              ))}
+            </div>
+          ) : (
+            <span className="text-muted-foreground text-xs">-</span>
+          )}
+        </TableCell>
+        <TableCell>
+          <Link href={`/intake/${record.id}`}>
+            <Button variant="ghost" size="sm">Edit</Button>
+          </Link>
+        </TableCell>
+      </TableRow>
+    );
+  };
+
+  // Render a group header row
+  const renderGroupHeader = (group: GroupKey, records: any[]) => {
+    if (records.length === 0) return null;
+    const isCollapsed = collapsedGroups.has(group);
+
+    // Sandwich total for the group
+    const groupSandwiches = records.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
+
+    return (
+      <>
+        <TableRow
+          key={`group-${group}`}
+          className={cn("cursor-pointer hover:bg-muted/20 border-t-2", GROUP_COLORS[group])}
+          onClick={() => toggleGroup(group)}
+        >
+          <TableCell colSpan={7} className="py-2.5">
+            <div className="flex items-center gap-2">
+              {isCollapsed ? (
+                <ChevronRight className="h-4 w-4 shrink-0" />
+              ) : (
+                <ChevronDown className="h-4 w-4 shrink-0" />
+              )}
+              <span className="font-semibold text-sm">{GROUP_LABELS[group]}</span>
+              <Badge variant="secondary" className="text-xs h-5 px-1.5">
+                {records.length}
+              </Badge>
+              {groupSandwiches > 0 && (
+                <span className="text-xs text-muted-foreground ml-auto">
+                  {groupSandwiches.toLocaleString()} sandwiches
+                </span>
+              )}
+            </div>
+          </TableCell>
+        </TableRow>
+        {!isCollapsed && records.map(record => renderRow(record))}
+      </>
+    );
+  };
+
   if (isLoading) {
     return (
       <div className="flex items-center justify-center h-[50vh]">
@@ -171,7 +411,7 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 md:p-8 space-y-8 max-w-7xl mx-auto">
+    <div className="p-6 md:p-8 space-y-6 max-w-7xl mx-auto">
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-primary">Intake Records</h1>
@@ -189,12 +429,39 @@ export default function Dashboard() {
         </div>
       </div>
 
+      {/* Summary stats */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        {stats.actionCount > 0 && (
+          <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
+            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
+            <div>
+              <p className="text-sm font-semibold text-red-800">{stats.actionCount} need attention</p>
+              <p className="text-xs text-red-600">Past due or missing critical info</p>
+            </div>
+          </div>
+        )}
+        <div className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
+          <Calendar className="h-5 w-5 text-teal-600 shrink-0" />
+          <div>
+            <p className="text-sm font-semibold text-teal-800">{stats.thisWeekCount} this week</p>
+            <p className="text-xs text-teal-600">Events in the next 7 days</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 p-3 bg-card border rounded-lg">
+          <div className="h-5 w-5 text-primary font-bold text-sm flex items-center justify-center shrink-0">#</div>
+          <div>
+            <p className="text-sm font-semibold">{stats.scheduledSandwiches.toLocaleString()} sandwiches</p>
+            <p className="text-xs text-muted-foreground">Scheduled total</p>
+          </div>
+        </div>
+      </div>
+
       {/* Filters */}
       <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border shadow-sm">
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-          <Input 
-            placeholder="Search organization or contact..." 
+          <Input
+            placeholder="Search organization or contact..."
             className="pl-9"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
@@ -224,7 +491,7 @@ export default function Dashboard() {
         <Table>
           <TableHeader>
             <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-[180px]">
+              <TableHead className="w-[130px]">
                 <button onClick={() => handleSort('status')} className="flex items-center hover:text-primary transition-colors">
                   Status <SortIcon column="status" />
                 </button>
@@ -250,7 +517,7 @@ export default function Dashboard() {
                 </button>
               </TableHead>
               <TableHead className="w-[200px]">Flags</TableHead>
-              <TableHead className="w-[100px]"></TableHead>
+              <TableHead className="w-[80px]"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
@@ -260,105 +527,12 @@ export default function Dashboard() {
                   No records found. Create a new intake to get started.
                 </TableCell>
               </TableRow>
+            ) : statusFilter !== 'all' ? (
+              // When filtering by specific status, show flat list (no grouping)
+              filteredRecords.map(record => renderRow(record))
             ) : (
-              filteredRecords.map((record) => (
-                <TableRow key={record.id} className="hover:bg-muted/5">
-                  <TableCell>
-                    <Badge variant="outline" className={getStatusColor(record.status)}>
-                      {record.status}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <div className="font-medium">
-                      {record.organizationName}
-                      {record.department && (
-                        <span className="font-normal text-muted-foreground"> — {record.department}</span>
-                      )}
-                    </div>
-                    <div className="text-sm text-muted-foreground">{record.contactName}</div>
-                  </TableCell>
-                  <TableCell>
-                    <div className="flex items-center gap-2 text-sm">
-                      <Calendar className="h-3 w-3 text-muted-foreground" />
-                      {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "-"}
-                    </div>
-                  </TableCell>
-                  <TableCell className="text-right font-mono">
-                    {record.attendeeCount}
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
-                      const summary = formatSandwichSummary(plan);
-                      if (summary === '-') return <span className="text-muted-foreground text-xs">-</span>;
-                      return (
-                        <div className="text-sm">
-                          <span className="font-mono font-bold text-primary">{record.sandwichCount}</span>
-                          <span className="text-muted-foreground ml-1.5">
-                            {plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ') || ''}
-                          </span>
-                        </div>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    {(() => {
-                      const storedFlags = Array.isArray(record.flags) ? record.flags : [];
-                      // Auto-compute attention flags
-                      const autoFlags: { label: string; variant: 'destructive' | 'warning' }[] = [];
-
-                      if (record.status !== 'Completed') {
-                        // Upcoming events (within 14 days) with missing critical fields
-                        if (record.eventDate) {
-                          const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
-                          if (daysUntil >= 0 && daysUntil <= 14) {
-                            const missingFields: string[] = [];
-                            if (!record.sandwichType) missingFields.push('type');
-                            if (record.sandwichCount <= 0) missingFields.push('count');
-                            if (!record.eventAddress && !record.location) missingFields.push('location');
-                            if (missingFields.length > 0) {
-                              autoFlags.push({ label: `Needs: ${missingFields.join(', ')}`, variant: 'warning' });
-                            }
-                            if (daysUntil <= 3 && record.status === 'In Process') {
-                              autoFlags.push({ label: 'Not yet scheduled', variant: 'destructive' });
-                            }
-                          }
-                        }
-                      }
-
-                      const allFlags = [
-                        ...storedFlags.map(f => ({ label: f, variant: 'destructive' as const })),
-                        ...autoFlags,
-                      ];
-
-                      return allFlags.length > 0 ? (
-                        <div className="flex flex-wrap gap-1">
-                          {allFlags.map((flag, i) => (
-                            <Badge
-                              key={i}
-                              variant={flag.variant === 'warning' ? 'outline' : 'destructive'}
-                              className={`text-[10px] px-1 py-0 h-5 ${
-                                flag.variant === 'warning'
-                                  ? 'border-amber-300 bg-amber-50 text-amber-800'
-                                  : ''
-                              }`}
-                            >
-                              {flag.label}
-                            </Badge>
-                          ))}
-                        </div>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">-</span>
-                      );
-                    })()}
-                  </TableCell>
-                  <TableCell>
-                    <Link href={`/intake/${record.id}`}>
-                      <Button variant="ghost" size="sm">Edit</Button>
-                    </Link>
-                  </TableCell>
-                </TableRow>
-              ))
+              // Grouped view
+              GROUP_ORDER.map(group => renderGroupHeader(group, groupedRecords[group]))
             )}
           </TableBody>
         </Table>
