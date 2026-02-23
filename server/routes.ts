@@ -491,7 +491,11 @@ export async function registerRoutes(
   // Intake Records (protected - requires authenticated and approved users)
   app.get("/api/intake-records", isAuthenticated, isApproved, async (req, res) => {
     try {
-      const records = await storage.listIntakeRecords();
+      const userId = getUserId(req);
+      const currentUser = await authStorage.getUser(userId!);
+      // Admins see all records; regular users see only their own
+      const isAdminUser = currentUser?.role === 'admin' || currentUser?.role === 'admin_coordinator';
+      const records = await storage.listIntakeRecords(isAdminUser ? undefined : userId!);
       res.json(records);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch records" });
@@ -724,7 +728,7 @@ export async function registerRoutes(
         'completed': 'Completed',
       };
 
-      // Build lookup map of existing records by externalEventId
+      // Build lookup map of existing records by externalEventId (unfiltered to prevent duplicates across users)
       const existingRecords = await storage.listIntakeRecords();
       const existingByExternalId = new Map<string, typeof existingRecords[0]>();
       for (const r of existingRecords) {
