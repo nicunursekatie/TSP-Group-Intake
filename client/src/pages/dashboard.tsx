@@ -13,31 +13,18 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue
-} from "@/components/ui/select";
-import {
   Search,
-  Calendar,
-  Filter,
   RefreshCw,
   Loader2,
-  ArrowUp,
-  ArrowDown,
-  ArrowUpDown,
-  AlertTriangle,
   ChevronDown,
   ChevronRight,
 } from "lucide-react";
 import { useIntakeRecords, useSyncFromPlatform } from "@/lib/queries";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import type { IntakeRecord } from "@/lib/types";
 
-type SortDirection = 'asc' | 'desc' | null;
-type SortColumn = 'status' | 'organizationName' | 'eventDate' | 'attendeeCount' | 'sandwichCount' | null;
+// --- Helpers ---
 
 type SandwichPlanEntry = { type: string; count: number };
 
@@ -53,102 +40,147 @@ function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCoun
   return sandwichCount > 0 ? [{ type: '', count: sandwichCount }] : [];
 }
 
-function formatSandwichSummary(plan: SandwichPlanEntry[]): string {
-  const withCount = plan.filter(e => e.count > 0);
-  if (withCount.length === 0) return '-';
-  return withCount.map(e => `${e.count} ${e.type || 'TBD'}`).join(', ');
-}
-
-const STATUS_ORDER: Record<string, number> = {
-  'New': 0,
-  'In Process': 1,
-  'Scheduled': 2,
-  'Completed': 3,
-};
-
-// Auto-computed flags for a record
-function computeFlags(record: any): { label: string; variant: 'destructive' | 'warning' }[] {
+function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructive' | 'warning' }[] {
   const flags: { label: string; variant: 'destructive' | 'warning' }[] = [];
+  // Stored flags
+  if (Array.isArray(record.flags)) {
+    for (const f of record.flags) {
+      flags.push({ label: f, variant: 'destructive' });
+    }
+  }
   if (record.status === 'Completed') return flags;
-
+  // Computed flags
   if (record.eventDate) {
     const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
-
-    // Past-due: event date passed but still In Process
-    if (daysUntil < 0 && record.status === 'In Process') {
+    if (daysUntil < 0 && (record.status === 'In Process' || record.status === 'New')) {
       flags.push({ label: 'Past due', variant: 'destructive' });
     }
-
-    // Upcoming events with missing fields
     if (daysUntil >= 0 && daysUntil <= 14) {
-      const missingFields: string[] = [];
-      if (!record.sandwichType) missingFields.push('type');
-      if (record.sandwichCount <= 0) missingFields.push('count');
-      if (!record.eventAddress && !record.location) missingFields.push('location');
-      if (missingFields.length > 0) {
-        flags.push({ label: `Needs: ${missingFields.join(', ')}`, variant: 'warning' });
+      const missing: string[] = [];
+      if (!record.sandwichType) missing.push('type');
+      if (record.sandwichCount <= 0) missing.push('count');
+      if (!record.eventAddress && !record.location) missing.push('location');
+      if (missing.length > 0) {
+        flags.push({ label: `Needs: ${missing.join(', ')}`, variant: 'warning' });
       }
       if (daysUntil <= 3 && record.status === 'In Process') {
         flags.push({ label: 'Not yet scheduled', variant: 'destructive' });
       }
     }
   }
-
   return flags;
 }
 
-// Group key ordering
-type GroupKey = 'New' | 'In Process' | 'Scheduled' | 'Completed';
-const GROUP_ORDER: GroupKey[] = ['New', 'In Process', 'Scheduled', 'Completed'];
+function daysFromToday(record: IntakeRecord): number | null {
+  if (!record.eventDate) return null;
+  return differenceInDays(new Date(record.eventDate), new Date());
+}
 
-const GROUP_LABELS: Record<GroupKey, string> = {
-  'New': 'New',
-  'In Process': 'In Process',
-  'Scheduled': 'Upcoming (Scheduled)',
-  'Completed': 'Completed',
+// --- Section Definitions ---
+
+interface SectionDef {
+  id: string;
+  icon: string;
+  title: string;
+  badgeColor: string;
+  defaultOpen: boolean;
+  filter: (records: IntakeRecord[]) => IntakeRecord[];
+}
+
+const SECTIONS: SectionDef[] = [
+  {
+    id: 'pastdue',
+    icon: '🔴',
+    title: 'Past Due — Still In Process',
+    badgeColor: 'bg-red-600',
+    defaultOpen: true,
+    filter: (records) => records.filter(r =>
+      r.eventDate &&
+      new Date(r.eventDate) < new Date() &&
+      (r.status === 'In Process' || r.status === 'New')
+    ),
+  },
+  {
+    id: 'needstype',
+    icon: '⚠️',
+    title: 'Action Needed: Assign Sandwich Type',
+    badgeColor: 'bg-amber-600',
+    defaultOpen: true,
+    filter: (records) => {
+      return records.filter(r => {
+        if (r.status === 'Completed') return false;
+        const flags = getAllFlags(r);
+        return flags.some(f => f.label.includes('Needs: type') || f.label.includes('Needs:') && f.label.includes('type'));
+      });
+    },
+  },
+  {
+    id: 'newrecs',
+    icon: '🆕',
+    title: 'New Requests',
+    badgeColor: 'bg-indigo-600',
+    defaultOpen: true,
+    filter: (records) => records.filter(r => r.status === 'New'),
+  },
+  {
+    id: 'upcoming',
+    icon: '📅',
+    title: 'Upcoming Events',
+    badgeColor: 'bg-teal-600',
+    defaultOpen: true,
+    filter: (records) => {
+      // Upcoming = future date, scheduled or in process, and no action-level flags, and not New
+      return records.filter(r => {
+        if (!r.eventDate || r.status === 'New' || r.status === 'Completed') return false;
+        if (new Date(r.eventDate) < new Date()) return false;
+        const flags = getAllFlags(r);
+        const hasActionFlag = flags.some(f =>
+          f.label.includes('Needs: type') || f.label.includes('Needs:') && f.label.includes('type')
+        );
+        return !hasActionFlag;
+      });
+    },
+  },
+  {
+    id: 'completed',
+    icon: '✅',
+    title: 'Completed',
+    badgeColor: 'bg-slate-500',
+    defaultOpen: false,
+    filter: (records) => records.filter(r => r.status === 'Completed'),
+  },
+];
+
+// --- Status pill colors ---
+
+const STATUS_PILL: Record<string, { fg: string; bg: string; border: string }> = {
+  'Scheduled':  { fg: 'text-teal-700',   bg: 'bg-teal-50',   border: 'border-teal-200' },
+  'In Process': { fg: 'text-amber-700',  bg: 'bg-amber-50',  border: 'border-amber-200' },
+  'New':        { fg: 'text-indigo-700', bg: 'bg-indigo-50', border: 'border-indigo-200' },
+  'Completed':  { fg: 'text-green-700',  bg: 'bg-green-50',  border: 'border-green-200' },
 };
 
-const GROUP_COLORS: Record<GroupKey, string> = {
-  'New': 'text-blue-800 bg-blue-50 border-blue-200',
-  'In Process': 'text-yellow-800 bg-yellow-50 border-yellow-200',
-  'Scheduled': 'text-teal-800 bg-teal-50 border-teal-200',
-  'Completed': 'text-green-800 bg-green-50 border-green-200',
-};
+// --- Component ---
 
 export default function Dashboard() {
   const { data: intakeRecords = [], isLoading } = useIntakeRecords();
   const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
-  const [sortColumn, setSortColumn] = useState<SortColumn>(null);
-  const [sortDirection, setSortDirection] = useState<SortDirection>(null);
-  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set(['Completed']));
+  const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
+    const initial = new Set<string>();
+    for (const s of SECTIONS) {
+      if (!s.defaultOpen) initial.add(s.id);
+    }
+    return initial;
+  });
 
-  const toggleGroup = (group: string) => {
-    setCollapsedGroups(prev => {
+  const toggleSection = (id: string) => {
+    setCollapsedSections(prev => {
       const next = new Set(prev);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
       return next;
     });
-  };
-
-  const handleSort = (column: SortColumn) => {
-    if (sortColumn !== column) {
-      setSortColumn(column);
-      setSortDirection('asc');
-    } else if (sortDirection === 'asc') {
-      setSortDirection('desc');
-    } else {
-      setSortColumn(null);
-      setSortDirection(null);
-    }
-  };
-
-  const SortIcon = ({ column }: { column: SortColumn }) => {
-    if (sortColumn !== column) return <ArrowUpDown className="h-3.5 w-3.5 ml-1 text-muted-foreground/50" />;
-    if (sortDirection === 'asc') return <ArrowUp className="h-3.5 w-3.5 ml-1 text-primary" />;
-    return <ArrowDown className="h-3.5 w-3.5 ml-1 text-primary" />;
   };
 
   const handleSync = () => {
@@ -162,243 +194,246 @@ export default function Dashboard() {
     });
   };
 
-  // Filter records
+  // Filter by search
   const filteredRecords = useMemo(() => {
-    let records = intakeRecords.filter(record => {
-      const matchesSearch =
-        record.organizationName.toLowerCase().includes(search.toLowerCase()) ||
-        record.contactName.toLowerCase().includes(search.toLowerCase()) ||
-        (record.department || '').toLowerCase().includes(search.toLowerCase());
+    if (!search.trim()) return intakeRecords;
+    const q = search.toLowerCase();
+    return intakeRecords.filter(r =>
+      r.organizationName.toLowerCase().includes(q) ||
+      r.contactName.toLowerCase().includes(q) ||
+      (r.department || '').toLowerCase().includes(q)
+    );
+  }, [intakeRecords, search]);
 
-      const matchesStatus = statusFilter === "all" || record.status === statusFilter;
-
-      return matchesSearch && matchesStatus;
-    });
-
-    // Sort within groups: soonest event date first
-    const sortFn = (a: any, b: any) => {
-      if (sortColumn && sortDirection) {
-        let cmp = 0;
-        switch (sortColumn) {
-          case 'status':
-            cmp = (STATUS_ORDER[a.status] ?? 99) - (STATUS_ORDER[b.status] ?? 99);
-            break;
-          case 'organizationName':
-            cmp = (a.organizationName || '').localeCompare(b.organizationName || '');
-            break;
-          case 'eventDate': {
-            const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
-            const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
-            cmp = dateA - dateB;
-            break;
-          }
-          case 'attendeeCount':
-            cmp = (a.attendeeCount || 0) - (b.attendeeCount || 0);
-            break;
-          case 'sandwichCount':
-            cmp = (a.sandwichCount || 0) - (b.sandwichCount || 0);
-            break;
-        }
-        return sortDirection === 'desc' ? -cmp : cmp;
-      }
-      // Default: soonest date first
+  // Sort: soonest event date first within each section
+  const sortedRecords = useMemo(() => {
+    return [...filteredRecords].sort((a, b) => {
       const dateA = a.eventDate ? new Date(a.eventDate).getTime() : Infinity;
       const dateB = b.eventDate ? new Date(b.eventDate).getTime() : Infinity;
       return dateA - dateB;
-    };
-
-    return [...records].sort(sortFn);
-  }, [intakeRecords, search, statusFilter, sortColumn, sortDirection]);
-
-  // Group records by status
-  const groupedRecords = useMemo(() => {
-    const groups: Record<GroupKey, typeof filteredRecords> = {
-      'New': [],
-      'In Process': [],
-      'Scheduled': [],
-      'Completed': [],
-    };
-
-    for (const record of filteredRecords) {
-      const status = record.status as GroupKey;
-      if (groups[status]) {
-        groups[status].push(record);
-      }
-    }
-
-    return groups;
+    });
   }, [filteredRecords]);
 
-  // Summary stats — all derived from filteredRecords so they respect search/status filters
+  // Build sections
+  const sectionData = useMemo(() => {
+    return SECTIONS.map(def => ({
+      ...def,
+      records: def.filter(sortedRecords),
+    }));
+  }, [sortedRecords]);
+
+  // Stats
   const stats = useMemo(() => {
-    const activeRecords = filteredRecords.filter(r => r.status !== 'Completed');
-    const scheduledRecords = filteredRecords.filter(r => r.status === 'Scheduled');
-
-    // Sandwiches scheduled (upcoming only)
-    const scheduledSandwiches = scheduledRecords.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
-
-    // Records needing action: non-completed records with destructive flags
-    const actionCount = activeRecords.filter(r => {
-      const hasStoredFlags = Array.isArray(r.flags) && r.flags.length > 0;
-      const hasComputedDestructive = computeFlags(r).some(f => f.variant === 'destructive');
-      return hasStoredFlags || hasComputedDestructive;
+    const active = filteredRecords.filter(r => r.status !== 'Completed');
+    const upcoming = filteredRecords.filter(r =>
+      r.eventDate && new Date(r.eventDate) >= new Date() &&
+      (r.status === 'Scheduled' || r.status === 'In Process' || r.status === 'New')
+    );
+    const totalSandwichesUpcoming = upcoming.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
+    const needsType = active.filter(r => {
+      const flags = getAllFlags(r);
+      return flags.some(f => f.label.includes('Needs:') && f.label.includes('type'));
     }).length;
+    const pastDue = active.filter(r =>
+      r.eventDate && new Date(r.eventDate) < new Date() &&
+      (r.status === 'In Process' || r.status === 'New')
+    ).length;
+    const scheduled = filteredRecords.filter(r => r.status === 'Scheduled').length;
+    const completed = filteredRecords.filter(r => r.status === 'Completed').length;
 
-    // This week: events in next 7 days
-    const thisWeekCount = activeRecords.filter(r => {
-      if (!r.eventDate) return false;
-      const days = differenceInDays(new Date(r.eventDate), new Date());
-      return days >= 0 && days <= 7;
-    }).length;
-
-    return { scheduledSandwiches, actionCount, thisWeekCount };
+    return {
+      upcoming: upcoming.length,
+      sandwichesNeeded: totalSandwichesUpcoming,
+      needsType,
+      pastDue,
+      scheduled,
+      completed,
+    };
   }, [filteredRecords]);
 
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case 'New': return "bg-blue-100 text-blue-800 border-blue-200";
-      case 'In Process': return "bg-yellow-100 text-yellow-800 border-yellow-200";
-      case 'Scheduled': return "bg-teal-100 text-teal-800 border-teal-200";
-      case 'Completed': return "bg-green-100 text-green-800 border-green-200";
-      default: return "bg-gray-100 text-gray-800 border-gray-200";
-    }
+  // Action banner alerts
+  const alerts = useMemo(() => {
+    const items: { text: string; count: number }[] = [];
+    if (stats.pastDue > 0)
+      items.push({ text: `${stats.pastDue} event${stats.pastDue > 1 ? 's' : ''} past due`, count: stats.pastDue });
+    if (stats.needsType > 0)
+      items.push({ text: `${stats.needsType} scheduled need sandwich type`, count: stats.needsType });
+    const newCount = filteredRecords.filter(r => r.status === 'New').length;
+    if (newCount > 0)
+      items.push({ text: `${newCount} new request${newCount > 1 ? 's' : ''} unprocessed`, count: newCount });
+    return items;
+  }, [stats, filteredRecords]);
+
+  // --- Render helpers ---
+
+  const DaysLabel = ({ record }: { record: IntakeRecord }) => {
+    const n = daysFromToday(record);
+    if (n === null) return null;
+    if (n === 0)  return <span className="text-red-600 font-bold text-[11px]">Today!</span>;
+    if (n < 0)    return <span className="text-red-600 font-semibold text-[11px]">{Math.abs(n)}d overdue</span>;
+    if (n <= 3)   return <span className="text-red-600 font-semibold text-[11px]">in {n}d</span>;
+    if (n <= 7)   return <span className="text-amber-600 font-semibold text-[11px]">in {n}d</span>;
+    return <span className="text-slate-400 text-[11px]">in {n}d</span>;
   };
 
-  // Render a single table row
-  const renderRow = (record: any) => {
-    const storedFlags = Array.isArray(record.flags) ? record.flags : [];
-    const autoFlags = computeFlags(record);
-    const allFlags = [
-      ...storedFlags.map((f: string) => ({ label: f, variant: 'destructive' as const })),
-      ...autoFlags,
-    ];
+  const StatusPill = ({ status }: { status: string }) => {
+    const colors = STATUS_PILL[status] || { fg: 'text-slate-700', bg: 'bg-slate-50', border: 'border-slate-200' };
+    return (
+      <span className={cn(
+        "inline-flex items-center rounded-md border px-2.5 py-0.5 text-[11px] font-semibold whitespace-nowrap",
+        colors.fg, colors.bg, colors.border,
+      )}>
+        {status}
+      </span>
+    );
+  };
 
+  const FlagPill = ({ flag }: { flag: { label: string; variant: 'destructive' | 'warning' } }) => {
+    if (flag.label.includes('Needs:')) {
+      return (
+        <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">
+          ⚠ {flag.label}
+        </span>
+      );
+    }
+    if (flag.label.includes('High Volume')) {
+      return (
+        <span className="inline-flex items-center rounded-md border border-red-300 bg-red-50 text-red-800 px-2 py-0.5 text-[11px] font-semibold">
+          🔴 {flag.label}
+        </span>
+      );
+    }
+    if (flag.variant === 'destructive') {
+      return (
+        <span className="inline-flex items-center rounded-md border border-red-300 bg-red-50 text-red-800 px-2 py-0.5 text-[11px] font-semibold">
+          {flag.label}
+        </span>
+      );
+    }
+    return (
+      <span className="inline-flex items-center rounded-md border border-indigo-300 bg-indigo-50 text-indigo-800 px-2 py-0.5 text-[11px]">
+        {flag.label}
+      </span>
+    );
+  };
+
+  const renderRow = (record: IntakeRecord) => {
+    const flags = getAllFlags(record);
     const isPastDue = record.eventDate &&
-      record.status === 'In Process' &&
-      differenceInDays(new Date(record.eventDate), new Date()) < 0;
+      (record.status === 'In Process' || record.status === 'New') &&
+      new Date(record.eventDate) < new Date();
 
-    const isZeroAttendees = record.attendeeCount === 0 && record.status !== 'Completed';
+    const sandCount = record.sandwichCount || 0;
+    const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
+    const typeStr = plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ');
 
     return (
       <TableRow
         key={record.id}
         className={cn(
-          "hover:bg-muted/5",
-          isPastDue && "bg-red-50/50",
-          isZeroAttendees && !isPastDue && "opacity-60",
+          "hover:brightness-[0.97]",
+          isPastDue && "bg-orange-50 border-l-[3px] border-l-orange-400",
         )}
       >
-        <TableCell>
-          <Badge variant="outline" className={getStatusColor(record.status)}>
-            {record.status}
-          </Badge>
+        <TableCell className="py-2.5 px-3.5 align-top">
+          <StatusPill status={record.status} />
         </TableCell>
-        <TableCell>
-          <div className="font-medium">
+        <TableCell className="py-2.5 px-3.5 max-w-[240px] align-top">
+          <div className="font-semibold text-slate-900 text-[13px] leading-tight">
             {record.organizationName}
             {record.department && (
-              <span className="font-normal text-muted-foreground"> — {record.department}</span>
+              <span className="font-normal text-slate-400"> — {record.department}</span>
             )}
           </div>
-          <div className="text-sm text-muted-foreground">{record.contactName}</div>
+          <div className="text-slate-500 text-[11px] mt-0.5">{record.contactName}</div>
         </TableCell>
-        <TableCell>
-          <div className={cn(
-            "flex items-center gap-2 text-sm",
-            isPastDue && "text-red-700 font-medium",
-          )}>
-            <Calendar className={cn("h-3 w-3", isPastDue ? "text-red-500" : "text-muted-foreground")} />
-            {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "-"}
-            {isPastDue && (
-              <Badge variant="destructive" className="text-[10px] px-1 py-0 h-4 ml-1">
-                Past due
-              </Badge>
-            )}
+        <TableCell className="py-2.5 px-3.5 whitespace-nowrap align-top">
+          <div className="text-[13px] text-slate-700 font-medium">
+            {record.eventDate ? format(new Date(record.eventDate), "MMM d, yyyy") : "—"}
+          </div>
+          <div className="mt-0.5">
+            <DaysLabel record={record} />
           </div>
         </TableCell>
-        <TableCell className={cn("text-right font-mono", isZeroAttendees && "text-muted-foreground")}>
-          {record.attendeeCount != null ? record.attendeeCount : <span className="text-muted-foreground/50">-</span>}
+        <TableCell className="py-2.5 px-3.5 text-right text-[13px] text-slate-700 align-top">
+          {record.attendeeCount != null && record.attendeeCount > 0
+            ? record.attendeeCount.toLocaleString()
+            : <span className="text-slate-300">—</span>
+          }
         </TableCell>
-        <TableCell>
-          {(() => {
-            const plan = parseSandwichPlan(record.sandwichType, record.sandwichCount);
-            const summary = formatSandwichSummary(plan);
-            if (summary === '-') return <span className="text-muted-foreground text-xs">-</span>;
-            return (
-              <div className="text-sm">
-                <span className="font-mono font-bold text-primary">{record.sandwichCount}</span>
-                <span className="text-muted-foreground ml-1.5">
-                  {plan.filter(e => e.type && e.count > 0).map(e => e.type).join(', ') || ''}
-                </span>
-              </div>
-            );
-          })()}
+        <TableCell className="py-2.5 px-3.5 text-right text-[13px] align-top">
+          {sandCount > 0
+            ? <strong className={cn(sandCount >= 500 ? "text-red-600" : "text-slate-900")}>{sandCount.toLocaleString()}</strong>
+            : <span className="text-slate-300">—</span>
+          }
         </TableCell>
-        <TableCell>
-          {allFlags.length > 0 ? (
+        <TableCell className="py-2.5 px-3.5 align-top">
+          {flags.length > 0 ? (
             <div className="flex flex-wrap gap-1">
-              {allFlags.map((flag, i) => (
-                <Badge
-                  key={i}
-                  variant={flag.variant === 'warning' ? 'outline' : 'destructive'}
-                  className={cn(
-                    "text-[10px] px-1.5 py-0 h-5",
-                    flag.variant === 'warning' && 'border-amber-300 bg-amber-50 text-amber-800'
-                  )}
-                >
-                  {flag.label}
-                </Badge>
-              ))}
+              {flags.map((flag, i) => <FlagPill key={i} flag={flag} />)}
             </div>
-          ) : (
-            <span className="text-muted-foreground text-xs">-</span>
-          )}
+          ) : null}
         </TableCell>
-        <TableCell>
+        <TableCell className="py-2.5 px-3.5 text-right align-top">
           <Link href={`/intake/${record.id}`}>
-            <Button variant="ghost" size="sm">Edit</Button>
+            <button className="text-teal-600 text-xs font-medium px-3 py-1 border border-teal-600/25 rounded-md bg-white hover:bg-teal-50 transition-colors">
+              Edit
+            </button>
           </Link>
         </TableCell>
       </TableRow>
     );
   };
 
-  // Render a group header row
-  const renderGroupHeader = (group: GroupKey, records: any[]) => {
-    if (records.length === 0) return null;
-    const isCollapsed = collapsedGroups.has(group);
-
-    // Sandwich total for the group
-    const groupSandwiches = records.reduce((sum, r) => sum + (r.sandwichCount || 0), 0);
+  const renderSection = (section: SectionDef & { records: IntakeRecord[] }) => {
+    if (section.records.length === 0) return null;
+    const isCollapsed = collapsedSections.has(section.id);
 
     return (
-      <>
-        <TableRow
-          key={`group-${group}`}
-          className={cn("cursor-pointer hover:bg-muted/20 border-t-2", GROUP_COLORS[group])}
-          onClick={() => toggleGroup(group)}
+      <div key={section.id} className="rounded-[10px] border border-slate-200 overflow-hidden shadow-sm mb-3.5">
+        {/* Section header */}
+        <div
+          onClick={() => toggleSection(section.id)}
+          className={cn(
+            "bg-white px-4 py-3 flex items-center gap-2.5 cursor-pointer select-none",
+            !isCollapsed && "border-b border-slate-200",
+          )}
         >
-          <TableCell colSpan={7} className="py-2.5">
-            <div className="flex items-center gap-2">
-              {isCollapsed ? (
-                <ChevronRight className="h-4 w-4 shrink-0" />
-              ) : (
-                <ChevronDown className="h-4 w-4 shrink-0" />
-              )}
-              <span className="font-semibold text-sm">{GROUP_LABELS[group]}</span>
-              <Badge variant="secondary" className="text-xs h-5 px-1.5">
-                {records.length}
-              </Badge>
-              {groupSandwiches > 0 && (
-                <span className="text-xs text-muted-foreground ml-auto">
-                  {groupSandwiches.toLocaleString()} sandwiches
-                </span>
-              )}
-            </div>
-          </TableCell>
-        </TableRow>
-        {!isCollapsed && records.map(record => renderRow(record))}
-      </>
+          <span className="text-[17px] leading-none">{section.icon}</span>
+          <span className="font-bold text-slate-900 text-sm">{section.title}</span>
+          <span className={cn(
+            "text-white text-[11px] font-bold rounded-full px-2.5 py-px",
+            section.badgeColor,
+          )}>
+            {section.records.length}
+          </span>
+          <span className="ml-auto text-slate-400 text-[13px]">
+            {isCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+          </span>
+        </div>
+
+        {/* Section body */}
+        {!isCollapsed && (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-slate-50 border-b-2 border-slate-200">
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Organization / Contact</TableHead>
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>
+                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Flags</TableHead>
+                  <TableHead className="py-2.5 px-3.5"></TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {section.records.map(record => renderRow(record))}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+      </div>
     );
   };
 
@@ -411,7 +446,8 @@ export default function Dashboard() {
   }
 
   return (
-    <div className="p-6 md:p-8 space-y-6 max-w-7xl mx-auto">
+    <div className="p-6 md:p-8 space-y-3.5 max-w-7xl mx-auto">
+      {/* Header */}
       <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
         <div>
           <h1 className="text-3xl font-bold tracking-tight text-primary">Intake Records</h1>
@@ -423,41 +459,36 @@ export default function Dashboard() {
             onClick={handleSync}
             disabled={syncMutation.isPending}
           >
-            <RefreshCw className={`mr-2 h-4 w-4 ${syncMutation.isPending ? 'animate-spin' : ''}`} />
+            <RefreshCw className={cn("mr-2 h-4 w-4", syncMutation.isPending && "animate-spin")} />
             {syncMutation.isPending ? 'Syncing...' : 'Sync with Platform'}
           </Button>
         </div>
       </div>
 
-      {/* Summary stats */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-        {stats.actionCount > 0 && (
-          <div className="flex items-center gap-3 p-3 bg-red-50 border border-red-200 rounded-lg">
-            <AlertTriangle className="h-5 w-5 text-red-600 shrink-0" />
-            <div>
-              <p className="text-sm font-semibold text-red-800">{stats.actionCount} need attention</p>
-              <p className="text-xs text-red-600">Past due or missing critical info</p>
-            </div>
-          </div>
-        )}
-        <div className="flex items-center gap-3 p-3 bg-teal-50 border border-teal-200 rounded-lg">
-          <Calendar className="h-5 w-5 text-teal-600 shrink-0" />
-          <div>
-            <p className="text-sm font-semibold text-teal-800">{stats.thisWeekCount} this week</p>
-            <p className="text-xs text-teal-600">Events in the next 7 days</p>
-          </div>
-        </div>
-        <div className="flex items-center gap-3 p-3 bg-card border rounded-lg">
-          <div className="h-5 w-5 text-primary font-bold text-sm flex items-center justify-center shrink-0">#</div>
-          <div>
-            <p className="text-sm font-semibold">{stats.scheduledSandwiches.toLocaleString()} sandwiches</p>
-            <p className="text-xs text-muted-foreground">Scheduled total</p>
-          </div>
-        </div>
+      {/* Stat cards — 6 cards */}
+      <div className="flex flex-wrap gap-2.5">
+        <StatCard icon="📅" value={stats.upcoming}                    label="Upcoming"          color="text-teal-600"  bg="bg-teal-50"   borderColor="border-teal-600/10" />
+        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()} label="Sandwiches Needed" color="text-sky-600"   bg="bg-sky-50"    borderColor="border-sky-600/10" />
+        <StatCard icon="⚠️" value={stats.needsType}                   label="Need Type"         color="text-amber-600" bg="bg-amber-50"  borderColor="border-amber-600/10" />
+        <StatCard icon="🔴" value={stats.pastDue}                     label="Past Due"          color="text-red-600"   bg="bg-orange-50" borderColor="border-red-600/10" />
+        <StatCard icon="✅" value={stats.scheduled}                   label="Scheduled"         color="text-green-600" bg="bg-green-50"  borderColor="border-green-600/10" />
+        <StatCard icon="📋" value={stats.completed}                   label="Completed"         color="text-slate-500" bg="bg-slate-50"  borderColor="border-slate-500/10" />
       </div>
 
-      {/* Filters */}
-      <div className="flex flex-col sm:flex-row gap-4 items-center bg-card p-4 rounded-lg border shadow-sm">
+      {/* Action banner */}
+      {alerts.length > 0 && (
+        <div className="bg-amber-50 border-[1.5px] border-amber-400 rounded-[10px] px-4 py-3 flex flex-wrap items-center gap-2">
+          <span className="text-amber-800 font-bold text-[13px]">⚡ Action Required:</span>
+          {alerts.map((alert, i) => (
+            <span key={i} className="text-amber-800 text-[13px] bg-white border border-amber-300 rounded-md px-2.5 py-0.5">
+              <strong>{alert.count}</strong> {alert.text.replace(/^\d+ /, '')}
+            </span>
+          ))}
+        </div>
+      )}
+
+      {/* Search */}
+      <div className="flex gap-4 items-center">
         <div className="relative w-full sm:w-72">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
@@ -467,76 +498,38 @@ export default function Dashboard() {
             onChange={(e) => setSearch(e.target.value)}
           />
         </div>
-        <div className="flex gap-2 w-full sm:w-auto">
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-full sm:w-[180px]">
-              <div className="flex items-center gap-2">
-                <Filter className="h-4 w-4 text-muted-foreground" />
-                <SelectValue placeholder="Status" />
-              </div>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">All Statuses</SelectItem>
-              <SelectItem value="New">New</SelectItem>
-              <SelectItem value="In Process">In Process</SelectItem>
-              <SelectItem value="Scheduled">Scheduled</SelectItem>
-              <SelectItem value="Completed">Completed</SelectItem>
-            </SelectContent>
-          </Select>
-        </div>
       </div>
 
-      {/* Table */}
-      <div className="rounded-lg border bg-card shadow-sm overflow-hidden">
-        <Table>
-          <TableHeader>
-            <TableRow className="bg-muted/40 hover:bg-muted/40">
-              <TableHead className="w-[130px]">
-                <button onClick={() => handleSort('status')} className="flex items-center hover:text-primary transition-colors">
-                  Status <SortIcon column="status" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button onClick={() => handleSort('organizationName')} className="flex items-center hover:text-primary transition-colors">
-                  Organization <SortIcon column="organizationName" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button onClick={() => handleSort('eventDate')} className="flex items-center hover:text-primary transition-colors">
-                  Event Date <SortIcon column="eventDate" />
-                </button>
-              </TableHead>
-              <TableHead className="text-right">
-                <button onClick={() => handleSort('attendeeCount')} className="flex items-center justify-end hover:text-primary transition-colors ml-auto">
-                  Attendees <SortIcon column="attendeeCount" />
-                </button>
-              </TableHead>
-              <TableHead>
-                <button onClick={() => handleSort('sandwichCount')} className="flex items-center hover:text-primary transition-colors">
-                  Sandwiches <SortIcon column="sandwichCount" />
-                </button>
-              </TableHead>
-              <TableHead className="w-[200px]">Flags</TableHead>
-              <TableHead className="w-[80px]"></TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {filteredRecords.length === 0 ? (
-              <TableRow>
-                <TableCell colSpan={7} className="h-32 text-center text-muted-foreground">
-                  No records found. Create a new intake to get started.
-                </TableCell>
-              </TableRow>
-            ) : statusFilter !== 'all' ? (
-              // When filtering by specific status, show flat list (no grouping)
-              filteredRecords.map(record => renderRow(record))
-            ) : (
-              // Grouped view
-              GROUP_ORDER.map(group => renderGroupHeader(group, groupedRecords[group]))
-            )}
-          </TableBody>
-        </Table>
-      </div>
+      {/* Sections */}
+      {sectionData.every(s => s.records.length === 0) ? (
+        <div className="rounded-lg border bg-card p-12 text-center text-muted-foreground">
+          No records found. Create a new intake to get started.
+        </div>
+      ) : (
+        sectionData.map(section => renderSection(section))
+      )}
+    </div>
+  );
+}
+
+// --- Stat Card ---
+
+function StatCard({ icon, value, label, color, bg, borderColor }: {
+  icon: string;
+  value: string | number;
+  label: string;
+  color: string;
+  bg: string;
+  borderColor: string;
+}) {
+  return (
+    <div className={cn(
+      "flex-1 min-w-[100px] border rounded-[10px] px-4 py-3.5 flex flex-col gap-0.5",
+      bg, borderColor,
+    )}>
+      <div className="text-lg">{icon}</div>
+      <div className={cn("text-2xl font-extrabold leading-none", color)}>{value}</div>
+      <div className="text-[11px] text-slate-500 font-medium mt-0.5">{label}</div>
     </div>
   );
 }
