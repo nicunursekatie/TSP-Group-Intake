@@ -514,7 +514,7 @@ export default function Dashboard() {
       <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
         <StatCard icon="🆕" value={stats.newRequests}                        label="New Requests"      color="text-indigo-600" bg="bg-indigo-50" borderColor="border-indigo-600/10" />
         <StatCard icon="📅" value={stats.upcoming}                           label="Upcoming"          color="text-teal-600"   bg="bg-teal-50"   borderColor="border-teal-600/10" />
-        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()}  label="Sandwiches Needed" color="text-sky-600"    bg="bg-sky-50"    borderColor="border-sky-600/10" />
+        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()}  label="Sandwiches Planned" color="text-sky-600"    bg="bg-sky-50"    borderColor="border-sky-600/10" />
         <StatCard icon="⚠️" value={stats.needsType}                          label="Need Type"         color="text-amber-600"  bg="bg-amber-50"  borderColor="border-amber-600/10" />
         <StatCard icon="📭" value={stats.pastDue}                            label="Awaiting Response"  color="text-slate-600" bg="bg-slate-50"  borderColor="border-slate-300/30" />
         <StatCard icon="✅" value={stats.scheduled}                          label="Scheduled"         color="text-green-600"  bg="bg-green-50"  borderColor="border-green-600/10" />
