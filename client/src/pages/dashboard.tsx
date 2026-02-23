@@ -19,6 +19,9 @@ import {
   ChevronDown,
   ChevronRight,
   MapPin,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
 } from "lucide-react";
 import { useIntakeRecords, useSyncFromPlatform, useTspContacts } from "@/lib/queries";
 import { useAuth } from "@/hooks/use-auth";
@@ -209,6 +212,7 @@ export default function Dashboard() {
   const { data: tspContacts = {} } = useTspContacts(isAdmin);
   const syncMutation = useSyncFromPlatform();
   const [search, setSearch] = useState("");
+  const [tspSort, setTspSort] = useState<'none' | 'asc' | 'desc'>('none');
   const [collapsedSections, setCollapsedSections] = useState<Set<string>>(() => {
     const initial = new Set<string>();
     for (const s of SECTIONS) {
@@ -469,9 +473,24 @@ export default function Dashboard() {
     );
   };
 
+  const toggleTspSort = () => {
+    setTspSort(prev => prev === 'none' ? 'asc' : prev === 'asc' ? 'desc' : 'none');
+  };
+
+  const sortByTspContact = (records: IntakeRecord[]): IntakeRecord[] => {
+    if (tspSort === 'none' || !isAdmin) return records;
+    return [...records].sort((a, b) => {
+      const nameA = resolveTspContactName(a) || '';
+      const nameB = resolveTspContactName(b) || '';
+      const cmp = nameA.localeCompare(nameB);
+      return tspSort === 'asc' ? cmp : -cmp;
+    });
+  };
+
   const renderSection = (section: SectionDef & { records: IntakeRecord[] }) => {
     if (section.records.length === 0) return null;
     const isCollapsed = collapsedSections.has(section.id);
+    const displayRecords = sortByTspContact(section.records);
 
     return (
       <div key={section.id} className="rounded-[10px] border border-slate-200 overflow-hidden shadow-sm mb-3.5">
@@ -506,7 +525,17 @@ export default function Dashboard() {
                   <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
                   <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Organization / Contact</TableHead>
                   {isAdmin && (
-                    <TableHead className="py-2.5 px-3.5 w-[130px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">TSP Contact</TableHead>
+                    <TableHead
+                      className="py-2.5 px-3.5 w-[130px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap cursor-pointer hover:text-slate-700 select-none"
+                      onClick={toggleTspSort}
+                    >
+                      <span className="inline-flex items-center gap-1">
+                        TSP Contact
+                        {tspSort === 'none' && <ArrowUpDown className="h-3 w-3 opacity-40" />}
+                        {tspSort === 'asc' && <ArrowUp className="h-3 w-3" />}
+                        {tspSort === 'desc' && <ArrowDown className="h-3 w-3" />}
+                      </span>
+                    </TableHead>
                   )}
                   <TableHead className="py-2.5 px-3.5 w-[140px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
                   <TableHead className="py-2.5 px-3.5 w-[90px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
@@ -515,7 +544,7 @@ export default function Dashboard() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {section.records.map((record, i) => renderRow(record, section.accentBorder, i % 2 === 1))}
+                {displayRecords.map((record, i) => renderRow(record, section.accentBorder, i % 2 === 1))}
               </TableBody>
             </Table>
           </div>
