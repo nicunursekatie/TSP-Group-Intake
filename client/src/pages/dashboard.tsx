@@ -445,16 +445,16 @@ export default function Dashboard() {
         {/* Section body */}
         {!isCollapsed && (
           <div className="overflow-x-auto">
-            <Table>
+            <Table className="table-fixed w-full">
               <TableHeader>
                 <TableRow className="bg-slate-50 border-b-2 border-slate-200">
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Status</TableHead>
                   <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Organization / Contact</TableHead>
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>
-                  <TableHead className="py-2.5 px-3.5 text-[11px] font-bold text-slate-500 uppercase tracking-wider">Flags</TableHead>
-                  <TableHead className="py-2.5 px-3.5"></TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[140px] text-[11px] font-bold text-slate-500 uppercase tracking-wider whitespace-nowrap">Event Date</TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[90px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Attendees</TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[100px] text-[11px] font-bold text-slate-500 uppercase tracking-wider text-right">Sandwiches</TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[180px] text-[11px] font-bold text-slate-500 uppercase tracking-wider">Flags</TableHead>
+                  <TableHead className="py-2.5 px-3.5 w-[60px]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -496,13 +496,13 @@ export default function Dashboard() {
       </div>
 
       {/* Stat cards */}
-      <div className="flex flex-wrap gap-2.5">
-        <StatCard icon="🆕" value={stats.newRequests}                 label="New Requests"      color="text-indigo-600" bg="bg-indigo-50" borderColor="border-indigo-600/10" />
-        <StatCard icon="📅" value={stats.upcoming}                    label="Upcoming"          color="text-teal-600"   bg="bg-teal-50"   borderColor="border-teal-600/10" />
-        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()} label="Sandwiches Needed" color="text-sky-600"   bg="bg-sky-50"    borderColor="border-sky-600/10" />
-        <StatCard icon="⚠️" value={stats.needsType}                   label="Need Type"         color="text-amber-600"  bg="bg-amber-50"  borderColor="border-amber-600/10" />
-        <StatCard icon="📭" value={stats.pastDue}                     label="Awaiting Response"  color="text-slate-600"  bg="bg-slate-50"  borderColor="border-slate-300/30" />
-        <StatCard icon="✅" value={stats.scheduled}                   label="Scheduled"         color="text-green-600"  bg="bg-green-50"  borderColor="border-green-600/10" />
+      <div className="grid grid-cols-3 sm:grid-cols-6 gap-2.5">
+        <StatCard icon="🆕" value={stats.newRequests}                        label="New Requests"      color="text-indigo-600" bg="bg-indigo-50" borderColor="border-indigo-600/10" />
+        <StatCard icon="📅" value={stats.upcoming}                           label="Upcoming"          color="text-teal-600"   bg="bg-teal-50"   borderColor="border-teal-600/10" />
+        <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()}  label="Sandwiches Needed" color="text-sky-600"    bg="bg-sky-50"    borderColor="border-sky-600/10" />
+        <StatCard icon="⚠️" value={stats.needsType}                          label="Need Type"         color="text-amber-600"  bg="bg-amber-50"  borderColor="border-amber-600/10" />
+        <StatCard icon="📭" value={stats.pastDue}                            label="Awaiting Response"  color="text-slate-600" bg="bg-slate-50"  borderColor="border-slate-300/30" />
+        <StatCard icon="✅" value={stats.scheduled}                          label="Scheduled"         color="text-green-600"  bg="bg-green-50"  borderColor="border-green-600/10" />
       </div>
 
       {/* Action banner */}
@@ -554,7 +554,7 @@ function StatCard({ icon, value, label, color, bg, borderColor }: {
 }) {
   return (
     <div className={cn(
-      "flex-1 min-w-[100px] border rounded-[10px] px-4 py-3.5 flex flex-col gap-0.5",
+      "border rounded-[10px] px-4 py-3.5 flex flex-col gap-0.5",
       bg, borderColor,
     )}>
       <div className="text-lg">{icon}</div>
