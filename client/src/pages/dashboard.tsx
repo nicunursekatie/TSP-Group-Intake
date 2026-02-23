@@ -40,8 +40,8 @@ function parseSandwichPlan(sandwichType: string | null | undefined, sandwichCoun
   return sandwichCount > 0 ? [{ type: '', count: sandwichCount }] : [];
 }
 
-function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructive' | 'warning' }[] {
-  const flags: { label: string; variant: 'destructive' | 'warning' }[] = [];
+function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructive' | 'warning' | 'stale' }[] {
+  const flags: { label: string; variant: 'destructive' | 'warning' | 'stale' }[] = [];
   // Stored flags
   if (Array.isArray(record.flags)) {
     for (const f of record.flags) {
@@ -53,7 +53,7 @@ function getAllFlags(record: IntakeRecord): { label: string; variant: 'destructi
   if (record.eventDate) {
     const daysUntil = differenceInDays(new Date(record.eventDate), new Date());
     if (daysUntil < 0 && (record.status === 'In Process' || record.status === 'New')) {
-      flags.push({ label: 'Past due', variant: 'destructive' });
+      flags.push({ label: 'Awaiting response', variant: 'stale' });
     }
     if (daysUntil >= 0 && daysUntil <= 14) {
       const missing: string[] = [];
@@ -89,16 +89,12 @@ interface SectionDef {
 
 const SECTIONS: SectionDef[] = [
   {
-    id: 'pastdue',
-    icon: '🔴',
-    title: 'Past Due — Still In Process',
-    badgeColor: 'bg-red-600',
+    id: 'newrecs',
+    icon: '🆕',
+    title: 'New Requests — Reach Out ASAP',
+    badgeColor: 'bg-indigo-600',
     defaultOpen: true,
-    filter: (records) => records.filter(r =>
-      r.eventDate &&
-      new Date(r.eventDate) < new Date() &&
-      (r.status === 'In Process' || r.status === 'New')
-    ),
+    filter: (records) => records.filter(r => r.status === 'New'),
   },
   {
     id: 'needstype',
@@ -115,12 +111,16 @@ const SECTIONS: SectionDef[] = [
     },
   },
   {
-    id: 'newrecs',
-    icon: '🆕',
-    title: 'New Requests',
-    badgeColor: 'bg-indigo-600',
+    id: 'awaiting',
+    icon: '📭',
+    title: 'Awaiting Response — Event Date Passed',
+    badgeColor: 'bg-slate-500',
     defaultOpen: true,
-    filter: (records) => records.filter(r => r.status === 'New'),
+    filter: (records) => records.filter(r =>
+      r.eventDate &&
+      new Date(r.eventDate) < new Date() &&
+      (r.status === 'In Process' || r.status === 'New')
+    ),
   },
   {
     id: 'upcoming',
@@ -238,10 +238,12 @@ export default function Dashboard() {
       r.eventDate && new Date(r.eventDate) < new Date() &&
       (r.status === 'In Process' || r.status === 'New')
     ).length;
+    const newRequests = filteredRecords.filter(r => r.status === 'New').length;
     const scheduled = filteredRecords.filter(r => r.status === 'Scheduled').length;
     const completed = filteredRecords.filter(r => r.status === 'Completed').length;
 
     return {
+      newRequests,
       upcoming: upcoming.length,
       sandwichesNeeded: totalSandwichesUpcoming,
       needsType,
@@ -251,16 +253,16 @@ export default function Dashboard() {
     };
   }, [filteredRecords]);
 
-  // Action banner alerts
+  // Action banner alerts — new requests first (highest priority)
   const alerts = useMemo(() => {
     const items: { text: string; count: number }[] = [];
-    if (stats.pastDue > 0)
-      items.push({ text: `${stats.pastDue} event${stats.pastDue > 1 ? 's' : ''} past due`, count: stats.pastDue });
-    if (stats.needsType > 0)
-      items.push({ text: `${stats.needsType} scheduled need sandwich type`, count: stats.needsType });
     const newCount = filteredRecords.filter(r => r.status === 'New').length;
     if (newCount > 0)
-      items.push({ text: `${newCount} new request${newCount > 1 ? 's' : ''} unprocessed`, count: newCount });
+      items.push({ text: `${newCount} new request${newCount > 1 ? 's' : ''} — reach out today`, count: newCount });
+    if (stats.needsType > 0)
+      items.push({ text: `${stats.needsType} need sandwich type assigned`, count: stats.needsType });
+    if (stats.pastDue > 0)
+      items.push({ text: `${stats.pastDue} event${stats.pastDue > 1 ? 's' : ''} awaiting response`, count: stats.pastDue });
     return items;
   }, [stats, filteredRecords]);
 
@@ -270,7 +272,7 @@ export default function Dashboard() {
     const n = daysFromToday(record);
     if (n === null) return null;
     if (n === 0)  return <span className="text-red-600 font-bold text-[11px]">Today!</span>;
-    if (n < 0)    return <span className="text-red-600 font-semibold text-[11px]">{Math.abs(n)}d overdue</span>;
+    if (n < 0)    return <span className="text-slate-500 font-medium text-[11px]">{Math.abs(n)}d ago</span>;
     if (n <= 3)   return <span className="text-red-600 font-semibold text-[11px]">in {n}d</span>;
     if (n <= 7)   return <span className="text-amber-600 font-semibold text-[11px]">in {n}d</span>;
     return <span className="text-slate-400 text-[11px]">in {n}d</span>;
@@ -288,7 +290,7 @@ export default function Dashboard() {
     );
   };
 
-  const FlagPill = ({ flag }: { flag: { label: string; variant: 'destructive' | 'warning' } }) => {
+  const FlagPill = ({ flag }: { flag: { label: string; variant: 'destructive' | 'warning' | 'stale' } }) => {
     if (flag.label.includes('Needs:')) {
       return (
         <span className="inline-flex items-center rounded-md border border-amber-300 bg-amber-50 text-amber-800 px-2 py-0.5 text-[11px] font-semibold">
@@ -300,6 +302,13 @@ export default function Dashboard() {
       return (
         <span className="inline-flex items-center rounded-md border border-red-300 bg-red-50 text-red-800 px-2 py-0.5 text-[11px] font-semibold">
           🔴 {flag.label}
+        </span>
+      );
+    }
+    if (flag.variant === 'stale') {
+      return (
+        <span className="inline-flex items-center rounded-md border border-slate-300 bg-slate-50 text-slate-600 px-2 py-0.5 text-[11px] font-medium">
+          📭 {flag.label}
         </span>
       );
     }
@@ -332,7 +341,7 @@ export default function Dashboard() {
         key={record.id}
         className={cn(
           "hover:brightness-[0.97]",
-          isPastDue && "bg-orange-50 border-l-[3px] border-l-orange-400",
+          isPastDue && "bg-slate-50/50 border-l-[3px] border-l-slate-300",
         )}
       >
         <TableCell className="py-2.5 px-3.5 align-top">
@@ -354,6 +363,13 @@ export default function Dashboard() {
           <div className="mt-0.5">
             <DaysLabel record={record} />
           </div>
+          {record.status === 'New' && record.createdAt && (() => {
+            const age = differenceInDays(new Date(), new Date(record.createdAt));
+            if (age === 0) return <div className="text-indigo-600 font-semibold text-[11px] mt-0.5">Received today</div>;
+            if (age === 1) return <div className="text-indigo-600 font-medium text-[11px] mt-0.5">Received yesterday</div>;
+            if (age <= 3) return <div className="text-amber-600 font-medium text-[11px] mt-0.5">Received {age}d ago</div>;
+            return <div className="text-slate-500 font-medium text-[11px] mt-0.5">Received {age}d ago</div>;
+          })()}
         </TableCell>
         <TableCell className="py-2.5 px-3.5 text-right text-[13px] text-slate-700 align-top">
           {record.attendeeCount != null && record.attendeeCount > 0
@@ -465,14 +481,14 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* Stat cards — 6 cards */}
+      {/* Stat cards */}
       <div className="flex flex-wrap gap-2.5">
-        <StatCard icon="📅" value={stats.upcoming}                    label="Upcoming"          color="text-teal-600"  bg="bg-teal-50"   borderColor="border-teal-600/10" />
+        <StatCard icon="🆕" value={stats.newRequests}                 label="New Requests"      color="text-indigo-600" bg="bg-indigo-50" borderColor="border-indigo-600/10" />
+        <StatCard icon="📅" value={stats.upcoming}                    label="Upcoming"          color="text-teal-600"   bg="bg-teal-50"   borderColor="border-teal-600/10" />
         <StatCard icon="🥪" value={stats.sandwichesNeeded.toLocaleString()} label="Sandwiches Needed" color="text-sky-600"   bg="bg-sky-50"    borderColor="border-sky-600/10" />
-        <StatCard icon="⚠️" value={stats.needsType}                   label="Need Type"         color="text-amber-600" bg="bg-amber-50"  borderColor="border-amber-600/10" />
-        <StatCard icon="🔴" value={stats.pastDue}                     label="Past Due"          color="text-red-600"   bg="bg-orange-50" borderColor="border-red-600/10" />
-        <StatCard icon="✅" value={stats.scheduled}                   label="Scheduled"         color="text-green-600" bg="bg-green-50"  borderColor="border-green-600/10" />
-        <StatCard icon="📋" value={stats.completed}                   label="Completed"         color="text-slate-500" bg="bg-slate-50"  borderColor="border-slate-500/10" />
+        <StatCard icon="⚠️" value={stats.needsType}                   label="Need Type"         color="text-amber-600"  bg="bg-amber-50"  borderColor="border-amber-600/10" />
+        <StatCard icon="📭" value={stats.pastDue}                     label="Awaiting Response"  color="text-slate-600"  bg="bg-slate-50"  borderColor="border-slate-300/30" />
+        <StatCard icon="✅" value={stats.scheduled}                   label="Scheduled"         color="text-green-600"  bg="bg-green-50"  borderColor="border-green-600/10" />
       </div>
 
       {/* Action banner */}
