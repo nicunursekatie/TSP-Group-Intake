@@ -1477,77 +1477,77 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </AccordionContent>
             </AccordionItem>
 
-            {/* Section 5: Day-Of Checklist */}
-              <AccordionItem
-                value="dayof"
-                className={cn(
-                  "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
-                  currentStatus !== 'Scheduled' && currentStatus !== 'Completed' && "opacity-70"
-                )}
-              >
-                <AccordionTrigger className="hover:no-underline py-4">
-                  <span className="font-semibold text-lg flex items-center gap-2">
-                    5. Day-Of Checklist
-                    {(currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
-                      <span className={cn(
-                        "text-xs font-medium px-2 py-0.5 rounded-full",
-                        dayOfCompleted === dayOfTotal
-                          ? "bg-green-100 text-green-700"
-                          : dayOfCompleted > 0
-                            ? "bg-amber-100 text-amber-700"
-                            : "bg-muted text-muted-foreground"
-                      )}>
-                        {dayOfCompleted}/{dayOfTotal} communicated
-                      </span>
-                    )}
-                  </span>
-                </AccordionTrigger>
-                <AccordionContent className="pt-2 pb-6 space-y-5">
-                  <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
-                    Confirm these requirements have been communicated to the right people (volunteer group, driver, etc.).
-                  </p>
-                  {dayOfCompleted === dayOfTotal && (currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
-                    <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg p-3">
-                      <CheckCircle2 className="h-4 w-4 shrink-0" />
-                      All day-of items communicated!
-                    </div>
+            {/* Section 5: Day-Of Checklist — always visible, dimmed until Scheduled */}
+            <AccordionItem
+              value="dayof"
+              className={cn(
+                "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
+                currentStatus !== 'Scheduled' && currentStatus !== 'Completed' && "opacity-70"
+              )}
+            >
+              <AccordionTrigger className="hover:no-underline py-4">
+                <span className="font-semibold text-lg flex items-center gap-2">
+                  5. Day-Of Checklist
+                  {(currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
+                    <span className={cn(
+                      "text-xs font-medium px-2 py-0.5 rounded-full",
+                      dayOfCompleted === dayOfTotal
+                        ? "bg-green-100 text-green-700"
+                        : dayOfCompleted > 0
+                          ? "bg-amber-100 text-amber-700"
+                          : "bg-muted text-muted-foreground"
+                    )}>
+                      {dayOfCompleted}/{dayOfTotal} communicated
+                    </span>
                   )}
-                  {Object.entries(groupedDayOfItems).map(([group, items]) => (
-                    <div key={group} className="space-y-1.5">
-                      <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
-                        {DAY_OF_GROUP_LABELS[group] || group}
-                      </h5>
-                      {items.map(item => {
-                        const checked = checklistState[item.key];
-                        const audienceLabel = item.audience ? AUDIENCE_LABELS[item.audience] : null;
-                        return (
-                          <label
-                            key={item.key}
-                            className={cn(
-                              "flex items-start gap-2 py-1.5 px-3 rounded-md text-sm cursor-pointer transition-colors",
-                              checked ? "text-muted-foreground bg-muted/20" : "hover:bg-muted/50"
+                </span>
+              </AccordionTrigger>
+              <AccordionContent className="pt-2 pb-6 space-y-5">
+                <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
+                  Confirm these requirements have been communicated to the right people (volunteer group, driver, etc.).
+                </p>
+                {dayOfCompleted === dayOfTotal && (currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
+                  <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg p-3">
+                    <CheckCircle2 className="h-4 w-4 shrink-0" />
+                    All day-of items communicated!
+                  </div>
+                )}
+                {Object.entries(groupedDayOfItems).map(([group, items]) => (
+                  <div key={group} className="space-y-1.5">
+                    <h5 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+                      {DAY_OF_GROUP_LABELS[group] || group}
+                    </h5>
+                    {items.map(item => {
+                      const checked = checklistState[item.key];
+                      const audienceLabel = item.audience ? AUDIENCE_LABELS[item.audience] : null;
+                      return (
+                        <label
+                          key={item.key}
+                          className={cn(
+                            "flex items-start gap-2 py-1.5 px-3 rounded-md text-sm cursor-pointer transition-colors",
+                            checked ? "text-muted-foreground bg-muted/20" : "hover:bg-muted/50"
+                          )}
+                        >
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(val) => handleChecklistToggle(item.key, val === true)}
+                            className="mt-0.5 shrink-0"
+                          />
+                          <div className="flex-1 min-w-0">
+                            <span className={checked ? "line-through" : ""}>{item.label}</span>
+                            {audienceLabel && (
+                              <span className="block text-[10px] text-muted-foreground mt-0.5">
+                                for {audienceLabel}
+                              </span>
                             )}
-                          >
-                            <Checkbox
-                              checked={checked}
-                              onCheckedChange={(val) => handleChecklistToggle(item.key, val === true)}
-                              className="mt-0.5 shrink-0"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <span className={checked ? "line-through" : ""}>{item.label}</span>
-                              {audienceLabel && (
-                                <span className="block text-[10px] text-muted-foreground mt-0.5">
-                                  for {audienceLabel}
-                                </span>
-                              )}
-                            </div>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  ))}
-                </AccordionContent>
-              </AccordionItem>
+                          </div>
+                        </label>
+                      );
+                    })}
+                  </div>
+                ))}
+              </AccordionContent>
+            </AccordionItem>
 
             {/* Section 6: Post-Event Follow-Up */}
             <AccordionItem
