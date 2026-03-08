@@ -1477,29 +1477,36 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
               </AccordionContent>
             </AccordionItem>
 
-            {/* Section 5: Day-Of Checklist — only when Scheduled or Completed */}
-            {(currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
-              <AccordionItem value="dayof" className="border rounded-lg bg-card px-4 shadow-sm">
+            {/* Section 5: Day-Of Checklist */}
+              <AccordionItem
+                value="dayof"
+                className={cn(
+                  "border rounded-lg bg-card px-4 shadow-sm transition-opacity",
+                  currentStatus !== 'Scheduled' && currentStatus !== 'Completed' && "opacity-70"
+                )}
+              >
                 <AccordionTrigger className="hover:no-underline py-4">
                   <span className="font-semibold text-lg flex items-center gap-2">
                     5. Day-Of Checklist
-                    <span className={cn(
-                      "text-xs font-medium px-2 py-0.5 rounded-full",
-                      dayOfCompleted === dayOfTotal
-                        ? "bg-green-100 text-green-700"
-                        : dayOfCompleted > 0
-                          ? "bg-amber-100 text-amber-700"
-                          : "bg-muted text-muted-foreground"
-                    )}>
-                      {dayOfCompleted}/{dayOfTotal} communicated
-                    </span>
+                    {(currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
+                      <span className={cn(
+                        "text-xs font-medium px-2 py-0.5 rounded-full",
+                        dayOfCompleted === dayOfTotal
+                          ? "bg-green-100 text-green-700"
+                          : dayOfCompleted > 0
+                            ? "bg-amber-100 text-amber-700"
+                            : "bg-muted text-muted-foreground"
+                      )}>
+                        {dayOfCompleted}/{dayOfTotal} communicated
+                      </span>
+                    )}
                   </span>
                 </AccordionTrigger>
                 <AccordionContent className="pt-2 pb-6 space-y-5">
                   <p className="text-sm text-muted-foreground bg-muted/30 rounded-lg p-3">
                     Confirm these requirements have been communicated to the right people (volunteer group, driver, etc.).
                   </p>
-                  {dayOfCompleted === dayOfTotal && (
+                  {dayOfCompleted === dayOfTotal && (currentStatus === 'Scheduled' || currentStatus === 'Completed') && (
                     <div className="flex items-center gap-2 text-green-700 text-sm bg-green-50 border border-green-200 rounded-lg p-3">
                       <CheckCircle2 className="h-4 w-4 shrink-0" />
                       All day-of items communicated!
@@ -1541,7 +1548,6 @@ Risks: ${showVolumeWarning ? 'High Volume' : ''} ${showFridgeWarning ? 'Refriger
                   ))}
                 </AccordionContent>
               </AccordionItem>
-            )}
 
             {/* Section 6: Post-Event Follow-Up */}
             <AccordionItem
